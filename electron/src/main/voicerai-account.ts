@@ -1,6 +1,6 @@
-import { app, safeStorage, shell } from 'electron';
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { app, safeStorage, shell } from "electron";
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /**
  * ThinkFlyFlow account gate for VoicerAI.
@@ -16,10 +16,10 @@ import { dirname, join } from 'node:path';
  * The renderer gets the signed-in profile, never the token itself.
  */
 
-export const WEB_ORIGIN = 'https://thinkflyflow.laureljar.com';
-export const API_ORIGIN = 'https://api.laureljar.com';
+export const WEB_ORIGIN = "https://thinkflyflow.laureljar.com";
+export const API_ORIGIN = "https://api.laureljar.com";
 export const API_BASE = `${API_ORIGIN}/api/v2`;
-export const DEEP_LINK_SCHEME = 'voicerai';
+export const DEEP_LINK_SCHEME = "voicerai";
 
 /** Server-issued hand-off codes expire quickly; they are single use. */
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -58,7 +58,7 @@ export interface UploadResult {
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 function authHeader(token: string): Record<string, string> {
-  return { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  return { Authorization: `Bearer ${token}`, Accept: "application/json" };
 }
 
 async function requestJson<T>(
@@ -69,7 +69,7 @@ async function requestJson<T>(
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const headers: Record<string, string> = {
-      Accept: 'application/json',
+      Accept: "application/json",
       ...(init.token ? authHeader(init.token) : {}),
       ...((init.headers as Record<string, string>) ?? {}),
     };
@@ -96,11 +96,11 @@ async function requestJson<T>(
 
 /** Pull a readable message out of whatever shape the API returned. */
 function errorMessage(body: unknown, status: number): string {
-  if (body && typeof body === 'object') {
+  if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
-    for (const key of ['error', 'detail', 'message']) {
+    for (const key of ["error", "detail", "message"]) {
       const value = record[key];
-      if (typeof value === 'string' && value.trim()) return value;
+      if (typeof value === "string" && value.trim()) return value;
     }
     const nonField = record.non_field_errors;
     if (Array.isArray(nonField) && nonField.length) return String(nonField[0]);
@@ -109,7 +109,7 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 function sessionFile(): string {
-  return join(app.getPath('userData'), 'voicerai-account.json');
+  return join(app.getPath("userData"), "voicerai-account.json");
 }
 
 export class AccountStore {
@@ -118,10 +118,15 @@ export class AccountStore {
   private load(): StoredSession | null {
     if (this.session !== undefined) return this.session;
     try {
-      const raw = readFileSync(sessionFile(), 'utf8');
-      const envelope = JSON.parse(raw) as { encrypted?: string; plain?: StoredSession };
+      const raw = readFileSync(sessionFile(), "utf8");
+      const envelope = JSON.parse(raw) as {
+        encrypted?: string;
+        plain?: StoredSession;
+      };
       if (envelope.encrypted) {
-        const decrypted = safeStorage.decryptString(Buffer.from(envelope.encrypted, 'base64'));
+        const decrypted = safeStorage.decryptString(
+          Buffer.from(envelope.encrypted, "base64"),
+        );
         this.session = JSON.parse(decrypted) as StoredSession;
       } else if (envelope.plain) {
         // safeStorage is unavailable on a few Linux setups without a keyring.
@@ -152,7 +157,7 @@ export class AccountStore {
     // Encrypt with the OS keychain when one is available. Linux desktops
     // without a keyring fall back to a 0600 file rather than refusing to sign in.
     const envelope = safeStorage.isEncryptionAvailable()
-      ? { encrypted: safeStorage.encryptString(json).toString('base64') }
+      ? { encrypted: safeStorage.encryptString(json).toString("base64") }
       : { plain: session };
     writeFileSync(file, JSON.stringify(envelope), { mode: 0o600 });
   }
@@ -191,14 +196,19 @@ export class AccountStore {
 export async function exchangeCode(code: string): Promise<StoredSession> {
   const body = await requestJson<{
     success?: boolean;
-    data?: { token?: string; access?: string; refresh?: string; user?: AccountProfile };
-  }>('/auth/desktop/exchange', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    data?: {
+      token?: string;
+      access?: string;
+      refresh?: string;
+      user?: AccountProfile;
+    };
+  }>("/auth/desktop/exchange", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
   });
   const token = body?.data?.token ?? body?.data?.access;
-  if (!token) throw new Error('ThinkFlyFlow did not return a session');
+  if (!token) throw new Error("ThinkFlyFlow did not return a session");
   return {
     token,
     refresh: body?.data?.refresh,
@@ -216,22 +226,29 @@ export async function openSignInPage(): Promise<void> {
 }
 
 /** Verify the stored token still works, and pick up profile changes. */
-export async function verifySession(store: AccountStore): Promise<AccountState> {
+export async function verifySession(
+  store: AccountStore,
+): Promise<AccountState> {
   const session = store.loadSync();
   if (!session) return store.state();
   try {
-    const body = await requestJson<{ success?: boolean; data?: AccountProfile }>('/auth/me/', {
+    const body = await requestJson<{
+      success?: boolean;
+      data?: AccountProfile;
+    }>("/auth/me/", {
       token: session.token,
     });
     const profile = (body?.data ?? body) as AccountProfile;
-    if (profile && typeof profile.id === 'number') {
+    if (profile && typeof profile.id === "number") {
       return store.set({ ...session, profile });
     }
     return store.state();
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Session expired';
+    const message = error instanceof Error ? error.message : "Session expired";
     if (/401|token|expired|invalid|credentials/i.test(message)) {
-      return store.clear('Your ThinkFlyFlow session expired. Sign in again to keep using VoicerAI.');
+      return store.clear(
+        "Your ThinkFlyFlow session expired. Sign in again to keep using VoicerAI.",
+      );
     }
     // Network trouble must not sign the user out; let them keep working.
     return store.state();
@@ -243,9 +260,13 @@ export async function uploadFile(
   input: { name: string; data: ArrayBuffer; kind?: string },
 ): Promise<UploadResult> {
   const session = store.loadSync();
-  if (!session) return { ok: false, error: 'Sign in to ThinkFlyFlow to save files in the cloud.' };
+  if (!session)
+    return {
+      ok: false,
+      error: "Sign in to ThinkFlyFlow to save files in the cloud.",
+    };
   const size = input.data.byteLength;
-  if (size === 0) return { ok: false, error: 'That file is empty.' };
+  if (size === 0) return { ok: false, error: "That file is empty." };
   if (size > MAX_UPLOAD_BYTES) {
     return {
       ok: false,
@@ -255,13 +276,17 @@ export async function uploadFile(
   try {
     const projectId = await ensureProject(session.token);
     const form = new FormData();
-    form.append('file', new Blob([input.data], { type: mimeFor(input.name) }), input.name);
-    form.append('project_id', projectId);
+    form.append(
+      "file",
+      new Blob([input.data], { type: mimeFor(input.name) }),
+      input.name,
+    );
+    form.append("project_id", projectId);
     const body = await requestJson<{
       success?: boolean;
       data?: { id: string; original_name?: string; size?: number };
-    }>('/files/upload/', { method: 'POST', token: session.token, body: form });
-    if (!body?.data?.id) throw new Error('The upload did not return a file id');
+    }>("/files/upload/", { method: "POST", token: session.token, body: form });
+    if (!body?.data?.id) throw new Error("The upload did not return a file id");
     return {
       ok: true,
       fileId: body.data.id,
@@ -269,29 +294,40 @@ export async function uploadFile(
       size: body.data.size ?? size,
     };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Upload failed' };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Upload failed",
+    };
   }
 }
 
-export const PROJECT_NAME = 'VoicerAI';
+export const PROJECT_NAME = "VoicerAI";
 
 /** VoicerAI keeps its cloud files in one project so they are easy to find. */
 async function ensureProject(token: string): Promise<string> {
-  const workspaces = await requestJson<{ success?: boolean; data?: Array<{ id: string }> }>(
-    '/workspaces/',
-    { token },
-  );
+  const workspaces = await requestJson<{
+    success?: boolean;
+    data?: Array<{ id: string }>;
+  }>("/workspaces/", { token });
   let workspaceId = workspaces?.data?.[0]?.id;
   if (!workspaceId) {
-    const created = await requestJson<{ data: { id: string } }>('/workspaces/', {
-      method: 'POST',
-      token,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'My Workspace', plan: 'free', type: 'individual' }),
-    });
+    const created = await requestJson<{ data: { id: string } }>(
+      "/workspaces/",
+      {
+        method: "POST",
+        token,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "My Workspace",
+          plan: "free",
+          type: "individual",
+        }),
+      },
+    );
     workspaceId = created?.data?.id;
   }
-  if (!workspaceId) throw new Error('Could not find a workspace for this account');
+  if (!workspaceId)
+    throw new Error("Could not find a workspace for this account");
 
   const projects = await requestJson<{
     data?: Array<{ id: string; name: string; workspace?: string }>;
@@ -299,39 +335,44 @@ async function ensureProject(token: string): Promise<string> {
   const existing = projects?.data?.find((p) => p.name === PROJECT_NAME);
   if (existing) return existing.id;
 
-  const created = await requestJson<{ data: { id: string } }>('/projects/', {
-    method: 'POST',
+  const created = await requestJson<{ data: { id: string } }>("/projects/", {
+    method: "POST",
     token,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace: workspaceId, name: PROJECT_NAME, icon: '🎙️' }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspace: workspaceId,
+      name: PROJECT_NAME,
+      icon: "🎙️",
+    }),
   });
-  if (!created?.data?.id) throw new Error('Could not create the VoicerAI project');
+  if (!created?.data?.id)
+    throw new Error("Could not create the VoicerAI project");
   return created.data.id;
 }
 
 function mimeFor(name: string): string {
-  const ext = name.toLowerCase().split('.').pop() ?? '';
+  const ext = name.toLowerCase().split(".").pop() ?? "";
   switch (ext) {
-    case 'wav':
-      return 'audio/wav';
-    case 'mp3':
-      return 'audio/mpeg';
-    case 'm4a':
-      return 'audio/mp4';
-    case 'flac':
-      return 'audio/flac';
-    case 'ogg':
-      return 'audio/ogg';
-    case 'zip':
-      return 'application/zip';
-    case 'json':
-      return 'application/json';
-    case 'txt':
-      return 'text/plain';
-    case 'pdf':
-      return 'application/pdf';
+    case "wav":
+      return "audio/wav";
+    case "mp3":
+      return "audio/mpeg";
+    case "m4a":
+      return "audio/mp4";
+    case "flac":
+      return "audio/flac";
+    case "ogg":
+      return "audio/ogg";
+    case "zip":
+      return "application/zip";
+    case "json":
+      return "application/json";
+    case "txt":
+      return "text/plain";
+    case "pdf":
+      return "application/pdf";
     default:
-      return 'application/octet-stream';
+      return "application/octet-stream";
   }
 }
 

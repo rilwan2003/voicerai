@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type BrowserWindow } from "electron";
 import {
   AccountStore,
   DEEP_LINK_SCHEME,
@@ -8,7 +8,7 @@ import {
   uploadFile,
   verifySession,
   type AccountState,
-} from './voicerai-account';
+} from "./voicerai-account";
 
 /**
  * Wires the ThinkFlyFlow account gate into the shell:
@@ -33,7 +33,7 @@ let pending: {
   timer: ReturnType<typeof setTimeout>;
 } | null = null;
 
-export const CLAIM_PATH = '/desktop-auth';
+export const CLAIM_PATH = "/desktop-auth";
 
 /** Extract the hand-off code from a `voicerai://auth?code=...` URL. */
 export function codeFromDeepLink(raw: string): string | null {
@@ -41,45 +41,49 @@ export function codeFromDeepLink(raw: string): string | null {
     const url = new URL(raw);
     if (url.protocol !== `${DEEP_LINK_SCHEME}:`) return null;
     // voicerai://auth?code=x parses as host "auth"; voicerai:///?code=x as "".
-    const route = (url.hostname || url.pathname.replace(/^\/+/, '')).toLowerCase();
-    if (route !== 'auth') return null;
-    const code = url.searchParams.get('code');
+    const route = (
+      url.hostname || url.pathname.replace(/^\/+/, "")
+    ).toLowerCase();
+    if (route !== "auth") return null;
+    const code = url.searchParams.get("code");
     return code && code.trim() ? code.trim() : null;
   } catch {
     return null;
   }
 }
 
-export function registerAccountGate(getWindow: () => BrowserWindow | null): void {
+export function registerAccountGate(
+  getWindow: () => BrowserWindow | null,
+): void {
   getWindowRef = getWindow;
   emit = (state) => {
     const win = getWindow();
-    win?.webContents.send('voicerai:state', state);
+    win?.webContents.send("voicerai:state", state);
   };
 
-  ipcMain.handle('voicerai:state', () => store.state());
+  ipcMain.handle("voicerai:state", () => store.state());
 
-  ipcMain.handle('voicerai:refresh', async () => {
+  ipcMain.handle("voicerai:refresh", async () => {
     const state = await verifySession(store);
     emit(state);
     return state;
   });
 
-  ipcMain.handle('voicerai:signOut', async () => {
+  ipcMain.handle("voicerai:signOut", async () => {
     const state = store.clear();
     emit(state);
     return state;
   });
 
-  ipcMain.handle('voicerai:signIn', async () => {
+  ipcMain.handle("voicerai:signIn", async () => {
     if (pending) {
       // A dialog is already open; reuse the wait rather than opening two tabs.
-      throw new Error('A sign-in window is already open in your browser.');
+      throw new Error("A sign-in window is already open in your browser.");
     }
     const waiting = new Promise<AccountState>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending = null;
-        reject(new Error('Sign-in timed out. Try again from the app.'));
+        reject(new Error("Sign-in timed out. Try again from the app."));
       }, SIGN_IN_TIMEOUT_MS);
       pending = { resolve, reject, timer };
     });
@@ -95,30 +99,30 @@ export function registerAccountGate(getWindow: () => BrowserWindow | null): void
   });
 
   ipcMain.handle(
-    'voicerai:upload',
+    "voicerai:upload",
     (_event, input: { name: string; data: ArrayBuffer }) => {
-      if (!input || typeof input.name !== 'string' || !input.data) {
-        return { ok: false, error: 'Nothing to upload' };
+      if (!input || typeof input.name !== "string" || !input.data) {
+        return { ok: false, error: "Nothing to upload" };
       }
       return uploadFile(store, input);
     },
   );
 
   // Second launch while the app is open: the OS passes the deep link in argv.
-  app.on('second-instance', (_event, argv) => {
+  app.on("second-instance", (_event, argv) => {
     for (const arg of argv) {
       if (arg.startsWith(`${DEEP_LINK_SCHEME}://`)) void handleDeepLink(arg);
     }
   });
 
   // macOS delivers URLs to the running app through open-url.
-  app.on('open-url', (event, url) => {
+  app.on("open-url", (event, url) => {
     if (!url.startsWith(`${DEEP_LINK_SCHEME}://`)) return;
     event.preventDefault();
     void handleDeepLink(url);
   });
 
-  if (process.platform === 'darwin') {
+  if (process.platform === "darwin") {
     app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
   }
 }
@@ -129,7 +133,9 @@ export function deepLinkFromArgv(argv: string[]): string | null {
   return link ?? null;
 }
 
-export async function handleDeepLink(url: string): Promise<AccountState | null> {
+export async function handleDeepLink(
+  url: string,
+): Promise<AccountState | null> {
   const code = codeFromDeepLink(url);
   if (!code) return null;
   try {
@@ -147,7 +153,9 @@ export async function handleDeepLink(url: string): Promise<AccountState | null> 
     return state;
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : 'Could not complete the ThinkFlyFlow sign-in';
+      error instanceof Error
+        ? error.message
+        : "Could not complete the ThinkFlyFlow sign-in";
     if (pending) {
       clearTimeout(pending.timer);
       pending.reject(new Error(message));
