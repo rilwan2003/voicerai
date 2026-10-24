@@ -194,6 +194,10 @@ export default {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
+    // Register the sign-in hand-off link while installing, so `voicerai://`
+    // works even before the app has been launched once (the app also registers
+    // it at startup). See electron/src/main/voicerai-gate.ts.
+    include: 'build/installer.nsh',
   },
   mac: {
     icon: 'build/icons/icon.icns',

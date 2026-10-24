@@ -187,8 +187,20 @@ export function registerAccountGate(
     void handleDeepLink(url);
   });
 
-  if (process.platform === "darwin") {
+  // Register the link handler on every platform. Windows needs it too: without
+  // it the browser's `voicerai://` link has no target and the sign-in silently
+  // goes nowhere. During development Electron needs the app's own arguments so
+  // the handler launches this app rather than the Electron default.
+  if (app.isPackaged) {
     app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  } else {
+    const executable = process.execPath;
+    const entry = process.argv.length > 1 ? process.argv[1] : null;
+    if (entry) {
+      app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME, executable, [entry]);
+    } else {
+      app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+    }
   }
 
   // Any link that arrived before this point is handled now, in order.
