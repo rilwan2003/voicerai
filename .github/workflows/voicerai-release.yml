@@ -1,0 +1,173 @@
+name: VoicerAI release
+
+# Builds the Windows and macOS installers for VoicerAI by ThinkFlyFlow and
+# attaches them to a GitHub Release on this repository.
+#
+# Deliberately NOT a fork of the upstream VoiceStudio release pipeline: that one
+# gates on signing credentials (Windows Authenticode certificate and an Apple
+# Developer ID + notarization), which this project does not have yet. Unsigned
+# installers are built here until those certificates are available; users on
+# macOS may need to allow the app in System Settings > Privacy & Security.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create or update (e.g. v1.0.0)'
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: voicerai-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Local-first: no analytics or update feed from upstream VoiceStudio.
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  VITE_POSTHOG_KEY: ''
+
+jobs:
+  package:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            flags: --win --x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            target: aarch64-apple-darwin
+            flags: --mac --arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            target: x86_64-apple-darwin
+            flags: --mac --x64
+    defaults:
+      run:
+        shell: bash
+    env:
+      VOICERAI_TARGET: ${{ matrix.target }}
+      VOICERAI_UPDATE_CHANNEL: electron-stable-${{ matrix.platform }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/desktop-bridge -> target
+          key: voicerai-${{ matrix.target }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.13'
+          enable-cache: false
+
+      - name: Bundle pinned uv for the host architecture
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { mkdirSync, copyFileSync, chmodSync } from 'node:fs';
+          import { join } from 'node:path';
+          const expected = process.env.VOICERAI_TARGET;
+          const targets = { 'win32-x64': 'x86_64-pc-windows-msvc', 'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin' };
+          if (targets[`${process.platform}-${process.arch}`] !== expected) throw new Error('Runner architecture does not match package target');
+          const source = execFileSync(process.platform === 'win32' ? 'where.exe' : 'which', ['uv'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
+          const dir = 'electron/build/uv';
+          mkdirSync(dir, { recursive: true });
+          const destination = join(dir, `uv-${expected}${process.platform === 'win32' ? '.exe' : ''}`);
+          copyFileSync(source, destination);
+          if (process.platform !== 'win32') chmodSync(destination, 0o755);
+          NODE
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the desktop app
+        run: bun run --cwd electron build
+
+      - name: Package installers
+        working-directory: electron
+        env:
+          # Signing certificates are picked up here once they exist as secrets.
+          CSC_LINK: ${{ matrix.platform == 'darwin' && secrets.MACOS_CSC_LINK || matrix.platform == 'win32' && secrets.WINDOWS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'darwin' && secrets.MACOS_CSC_KEY_PASSWORD || matrix.platform == 'win32' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+        run: |
+          if [ -z "${CSC_LINK:-}" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          bun x electron-builder --config electron-builder.config.mjs ${{ matrix.flags }} --publish never
+          ls -la release
+
+      - name: Collect the installers
+        shell: bash
+        run: |
+          mkdir -p dist-out
+          shopt -s nullglob
+          for f in electron/release/VoicerAI-Electron-*.exe \
+                   electron/release/VoicerAI-Electron-*.dmg \
+                   electron/release/VoicerAI-Electron-*.zip; do
+            cp "$f" dist-out/
+          done
+          ls -la dist-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voicerai-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 30
+          if-no-files-found: error
+          path: dist-out/*
+
+  release:
+    name: publish
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: voicerai-*
+          path: dist-out
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist-out
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          NOTES="VoicerAI by ThinkFlyFlow $(date -u +%Y-%m-%d)
+          
+          Desktop voice cloning for Windows and macOS. Runs fully on your machine."
+          gh release create "$TAG" dist-out/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "VoicerAI $TAG" \
+            --notes "$NOTES" \
+            --clobber
