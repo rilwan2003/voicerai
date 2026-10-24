@@ -163,11 +163,44 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          NOTES="VoicerAI by ThinkFlyFlow $(date -u +%Y-%m-%d)
-          
-          Desktop voice cloning for Windows and macOS. Runs fully on your machine."
-          gh release create "$TAG" dist-out/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "VoicerAI $TAG" \
-            --notes "$NOTES" \
-            --clobber
+          NOTES="VoicerAI by ThinkFlyFlow. Desktop voice cloning for Windows and macOS; the engine runs on your own machine."
+          # Create the release on the first run for a tag. A re-run (a fixed
+          # build for the same tag) replaces the assets of the existing release
+          # instead, because this gh version has no --clobber.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            for file in dist-out/*; do
+              gh release upload "$TAG" "$file" --repo "$GITHUB_REPOSITORY" --clobber
+            done
+          else
+            gh release create "$TAG" dist-out/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "VoicerAI $TAG" \
+              --notes "$NOTES"
+          fi
+
+      # The download page on thinkflyflow.laureljar.com links here, so every
+      # release also refreshes one stable path per platform.
+      - name: Mirror installers onto the stable download branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'VoicerAI release'
+          git config user.email 'support@fedacash.com'
+          git checkout --orphan downloads-tmp
+          git rm -rqf . || true
+          shopt -s nullglob
+          cp dist-out/*.exe downloads-voicerai-windows.exe 2>/dev/null || true
+          for dmg in dist-out/*.dmg; do
+            case "$dmg" in
+              *arm64*) cp "$dmg" downloads-voicerai-macos-apple-silicon.dmg ;;
+              *x64*)   cp "$dmg" downloads-voicerai-macos-intel.dmg ;;
+            esac
+          done
+          cp dist-out/SHA256SUMS.txt LATEST.txt 2>/dev/null || true
+          echo "$TAG" >> LATEST.txt
+          ls -la
+          git add -A
+          git commit -qm "Installers for $TAG"
+          git push -f origin HEAD:downloads
