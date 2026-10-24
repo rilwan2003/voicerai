@@ -1,28 +1,29 @@
-import { WorkspaceSidebar } from './workspace-sidebar';
-import { ContextSidebar } from './context-sidebar';
-import { CommandPalette } from '@/components/command-palette';
-import { Outlet, useRouterState } from '@tanstack/react-router';
-import { BackendGate } from '../backend-gate';
-import { RepairAgentDock } from './repair-agent-dock';
-import { isMac } from '../bridge';
-import { cn } from '@/lib/utils';
-import { useBackendStatus } from '@/hooks/use-backend-status';
-import { isBackendReachable } from '@shared/utils/backendStage';
-import { AccountCorner } from './account-corner';
+import { WorkspaceSidebar } from "./workspace-sidebar";
+import { ContextSidebar } from "./context-sidebar";
+import { CommandPalette } from "@/components/command-palette";
+import { Outlet, useRouterState } from "@tanstack/react-router";
+import { BackendGate } from "../backend-gate";
+import { RepairAgentDock } from "./repair-agent-dock";
+import { isMac } from "../bridge";
+import { cn } from "@/lib/utils";
+import { useBackendStatus } from "@/hooks/use-backend-status";
+import { isBackendReachable } from "@shared/utils/backendStage";
+import { AccountCorner } from "./account-corner";
+import { AccountPanel } from "@/components/account-panel";
 
 export function AppShell() {
   const backend = useBackendStatus();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  const shellOnly = pathname.startsWith('/settings') || pathname === '/pro';
+  const shellOnly = pathname.startsWith("/settings") || pathname === "/pro";
   const macWorkspace = isMac() && !shellOnly;
-  const SettingsWorkspace = pathname === '/settings/openapi' ? 'div' : 'main';
+  const SettingsWorkspace = pathname === "/settings/openapi" ? "div" : "main";
   return (
     <div
       className={cn(
-        'app-surface relative flex h-full flex-col bg-background text-foreground',
-        macWorkspace && 'macos-notification-safe-area',
+        "app-surface relative flex h-full flex-col bg-background text-foreground",
+        macWorkspace && "macos-notification-safe-area",
       )}
     >
       <div className="flex min-h-0 flex-1">
@@ -34,13 +35,18 @@ export function AppShell() {
             <WorkspaceSidebar />
             <SettingsWorkspace
               data-slot="workspace-content"
-              role={pathname === '/settings/openapi' ? 'main' : undefined}
+              role={pathname === "/settings/openapi" ? "main" : undefined}
               className="@container relative flex min-w-0 flex-1 flex-col overflow-hidden"
             >
               <div className="min-h-0 flex-1 overflow-hidden">
                 <Outlet />
               </div>
               <RepairAgentDock />
+              {pathname === "/settings/account" && (
+                <div className="shrink-0 px-5 pb-5">
+                  <AccountPanel />
+                </div>
+              )}
             </SettingsWorkspace>
           </>
         ) : (
