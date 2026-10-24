@@ -178,29 +178,34 @@ jobs:
               --notes "$NOTES"
           fi
 
-      # The download page on thinkflyflow.laureljar.com links here, so every
-      # release also refreshes one stable path per platform.
-      - name: Mirror installers onto the stable download branch
+      # The site fills its "Download VoicerAI" menu from this tag, using one
+      # stable file name per platform, so the page never has to know the
+      # version. Re-running a release replaces these files in place.
+      - name: Refresh the stable download names
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          git config user.name 'VoicerAI release'
-          git config user.email 'support@fedacash.com'
-          git checkout --orphan downloads-tmp
-          git rm -rqf . || true
+          if ! gh release view downloads --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create downloads --repo "$GITHUB_REPOSITORY" \
+              --title 'VoicerAI downloads' \
+              --notes 'Stable download file names for the VoicerAI product page. Each release updates these files in place.'
+          fi
           shopt -s nullglob
-          cp dist-out/*.exe downloads-voicerai-windows.exe 2>/dev/null || true
+          for exe in dist-out/*.exe; do
+            cp "$exe" dist-out/VoicerAI-Windows-x64-Setup.exe
+          done
           for dmg in dist-out/*.dmg; do
             case "$dmg" in
-              *arm64*) cp "$dmg" downloads-voicerai-macos-apple-silicon.dmg ;;
-              *x64*)   cp "$dmg" downloads-voicerai-macos-intel.dmg ;;
+              *arm64*) cp "$dmg" dist-out/VoicerAI-macOS-AppleSilicon.dmg ;;
+              *x64*)   cp "$dmg" dist-out/VoicerAI-macOS-Intel.dmg ;;
             esac
           done
-          cp dist-out/SHA256SUMS.txt LATEST.txt 2>/dev/null || true
-          echo "$TAG" >> LATEST.txt
-          ls -la
-          git add -A
-          git commit -qm "Installers for $TAG"
-          git push -f origin HEAD:downloads
+          for file in dist-out/VoicerAI-Windows-x64-Setup.exe \
+                      dist-out/VoicerAI-macOS-AppleSilicon.dmg \
+                      dist-out/VoicerAI-macOS-Intel.dmg \
+                      dist-out/SHA256SUMS.txt; do
+            [ -f "$file" ] || continue
+            gh release upload downloads "$file" --repo "$GITHUB_REPOSITORY" --clobber 2>/dev/null \
+              || gh release upload downloads "$file" --repo "$GITHUB_REPOSITORY"
+          done
