@@ -1,4 +1,4 @@
-import { decideMissingRuntime, runtimeWasInstalled } from './runtime-repair';
+import { decideMissingRuntime, runtimeWasInstalled } from "./runtime-repair";
 import {
   installRuntime,
   promoteLegacyRuntimeCaches,
@@ -9,18 +9,28 @@ import {
   runtimePython,
   stageRuntimeSources,
   type RuntimeRegion,
-} from './runtime-project';
-import { collectHostSnapshot, type HostSnapshot } from './host-snapshot';
-import { runtimeSetupSupported } from './distribution';
-import { asciiSafePthFiles } from './pth-ascii';
-import { devProbeStamped, writeDevProbeStamp } from './dev-probe-stamp';
-import { CrashJournal } from './crash-journal';
-import { nativeFaultSummary } from '../shared/utils/crashReport';
-import { availableBackendPort } from './backend-port';
-import { scopedStorage, scopedStorageEnv, type ScopedStorage } from './storage-scope';
-import { legacyStorageEnv } from './legacy-storage';
-import { spawn, spawnSync, type ChildProcess, type StdioOptions } from 'node:child_process';
-import { EventEmitter } from 'node:events';
+} from "./runtime-project";
+import { collectHostSnapshot, type HostSnapshot } from "./host-snapshot";
+import { runtimeSetupSupported } from "./distribution";
+import { asciiSafePthFiles } from "./pth-ascii";
+import { devProbeStamped, writeDevProbeStamp } from "./dev-probe-stamp";
+import { CrashJournal } from "./crash-journal";
+import { nativeFaultSummary } from "../shared/utils/crashReport";
+import { availableBackendPort } from "./backend-port";
+import {
+  scopedStorage,
+  scopedStorageEnv,
+  type ScopedStorage,
+} from "./storage-scope";
+import { PRODUCT_NAME } from "../../../config/app-config.mjs";
+import { legacyStorageEnv } from "./legacy-storage";
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type StdioOptions,
+} from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   accessSync,
   constants,
@@ -31,30 +41,37 @@ import {
   rmSync,
   statSync,
   writeFileSync,
-} from 'node:fs';
-import { access, rm, stat } from 'node:fs/promises';
-import { cpus, homedir, totalmem } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { app } from 'electron';
-import { APP_ORIGIN } from './protocol';
+} from "node:fs";
+import { access, rm, stat } from "node:fs/promises";
+import { cpus, homedir, totalmem } from "node:os";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
+import { app } from "electron";
+import { APP_ORIGIN } from "./protocol";
 import type {
   BackendConnection,
   BackendStage,
   BackendStatus,
   NativeCrashRecord,
   RemoteBackendProbe,
-} from '../preload/index.d';
+} from "../preload/index.d";
 import {
   loadRemoteBackend,
   probeRemoteBackend,
   remoteWebSocketUrl,
   saveRemoteBackend,
   type RemoteSession,
-} from './remote-backend';
-import { toolSearchDirs, toolSearchDirsAsync } from './tool-path';
-import { SetupProgressTracker, cleanProcessLine } from './setup-progress';
-import { scrubText } from '../shared/utils/scrub';
-import { DEFAULT_BACKEND_PORT } from '../../../config/app-config.mjs';
+} from "./remote-backend";
+import { toolSearchDirs, toolSearchDirsAsync } from "./tool-path";
+import { SetupProgressTracker, cleanProcessLine } from "./setup-progress";
+import { scrubText } from "../shared/utils/scrub";
+import { DEFAULT_BACKEND_PORT } from "../../../config/app-config.mjs";
 
 const DEFAULT_BUDGET_S = 300;
 const READY_POLL_MS = 500;
@@ -82,8 +99,8 @@ const AUTH_RECHECK_TICKS = 15;
  * already proved the process is alive, so the health loop owns clearing it.
  */
 const RECOVERABLE_STAGES: ReadonlySet<BackendStage> = new Set<BackendStage>([
-  'failed',
-  'unresponsive',
+  "failed",
+  "unresponsive",
 ]);
 const LOG_RING_LINES = 200;
 const LOG_TAIL_LINES = 40;
@@ -97,25 +114,36 @@ const EXIT_PORT_IN_USE = 78;
  * "[Errno N] error while attempting to bind on address ..." line. The errno
  * is locale-independent, so classify on it (#3020).
  */
-export function bindFailureFromLog(text: string): 'in_use' | 'denied' | null {
-  const match = /\[Errno (-?\d+)\] error while attempting to bind on address/.exec(text);
+export function bindFailureFromLog(text: string): "in_use" | "denied" | null {
+  const match =
+    /\[Errno (-?\d+)\] error while attempting to bind on address/.exec(text);
   if (!match) return null;
   const errno = Number(match[1]);
-  if ([48, 98, 10048].includes(errno)) return 'in_use';
-  if ([13, 10013].includes(errno)) return 'denied';
+  if ([48, 98, 10048].includes(errno)) return "in_use";
+  if ([13, 10013].includes(errno)) return "denied";
   return null;
 }
 const POSIX_SIGKILL_AFTER_MS = 2000;
-const TAURI_APP_ID = 'com.debpalash.omnivoice-studio';
-const RUNTIME_LOCATION_FILE = 'runtime-location.json';
-const RUNTIME_PREFERENCES_FILE = 'runtime-preferences.json';
-const RUNTIME_REGIONS = new Set<RuntimeRegion>(['auto', 'global', 'china', 'russia', 'restricted']);
+const TAURI_APP_ID = "com.debpalash.omnivoice-studio";
+const RUNTIME_LOCATION_FILE = "runtime-location.json";
+const RUNTIME_PREFERENCES_FILE = "runtime-preferences.json";
+const RUNTIME_REGIONS = new Set<RuntimeRegion>([
+  "auto",
+  "global",
+  "china",
+  "russia",
+  "restricted",
+]);
 
 /** Pipe closures emitted while a child is exiting are lifecycle signals, not failures. */
 export function isExpectedPipeClose(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
+  if (!error || typeof error !== "object") return false;
   const code = (error as NodeJS.ErrnoException).code;
-  return code === 'EPIPE' || code === 'ECONNRESET' || code === 'ERR_STREAM_PREMATURE_CLOSE';
+  return (
+    code === "EPIPE" ||
+    code === "ECONNRESET" ||
+    code === "ERR_STREAM_PREMATURE_CLOSE"
+  );
 }
 
 interface RuntimeLocationConfig {
@@ -126,29 +154,41 @@ interface RuntimeLocationConfig {
 }
 
 function runtimePreferencesPath(): string {
-  return join(app.getPath('userData'), RUNTIME_PREFERENCES_FILE);
+  return join(app.getPath("userData"), RUNTIME_PREFERENCES_FILE);
 }
 
 function loadRuntimeRegion(): RuntimeRegion {
   try {
-    const value = JSON.parse(readFileSync(runtimePreferencesPath(), 'utf8')) as {
+    const value = JSON.parse(
+      readFileSync(runtimePreferencesPath(), "utf8"),
+    ) as {
       region?: unknown;
     };
-    return typeof value.region === 'string' && RUNTIME_REGIONS.has(value.region as RuntimeRegion)
+    return typeof value.region === "string" &&
+      RUNTIME_REGIONS.has(value.region as RuntimeRegion)
       ? (value.region as RuntimeRegion)
-      : 'auto';
+      : "auto";
   } catch {
-    return 'auto';
+    return "auto";
   }
 }
 
-const UVICORN_ARGS = ['uvicorn', 'main:app', '--app-dir', 'backend', '--host', '127.0.0.1'];
+const UVICORN_ARGS = [
+  "uvicorn",
+  "main:app",
+  "--app-dir",
+  "backend",
+  "--host",
+  "127.0.0.1",
+];
 
 export type StatusListener = (status: BackendStatus) => void;
 
 export function resolvePort(): number {
   const raw = Number(process.env.OMNIVOICE_PORT);
-  return Number.isInteger(raw) && raw > 0 && raw < 65536 ? raw : DEFAULT_BACKEND_PORT;
+  return Number.isInteger(raw) && raw > 0 && raw < 65536
+    ? raw
+    : DEFAULT_BACKEND_PORT;
 }
 
 /** Hosts at or below this are "low-spec": a cold backend import is disk/CPU-bound. */
@@ -168,14 +208,19 @@ const MAX_BUDGET_EXTENSIONS = 3;
  * stretches a timeout - it never changes what a feature does - so it is not a
  * cross-platform behavior difference.
  */
-export function defaultStartupBudgetS(cores = cpus().length, memoryBytes = totalmem()): number {
+export function defaultStartupBudgetS(
+  cores = cpus().length,
+  memoryBytes = totalmem(),
+): number {
   const small = cores <= LOW_SPEC_CORES || memoryBytes <= LOW_SPEC_MEMORY_BYTES;
   return small ? DEFAULT_BUDGET_S * LOW_SPEC_BUDGET_FACTOR : DEFAULT_BUDGET_S;
 }
 
 function startupBudgetMs(): number {
   const raw = Number(process.env.OMNIVOICE_STARTUP_BUDGET_S);
-  return (Number.isFinite(raw) && raw >= 0 ? raw : defaultStartupBudgetS()) * 1000;
+  return (
+    (Number.isFinite(raw) && raw >= 0 ? raw : defaultStartupBudgetS()) * 1000
+  );
 }
 
 /**
@@ -200,11 +245,13 @@ export function readinessDeadline(
  * `OMNIVOICE_BACKEND_CMD` override, mirroring the Tauri shell: a JSON array when
  * it starts with `[` (paths with spaces survive), else whitespace-split.
  */
-export function parseBackendCmdOverride(raw: string | undefined): string[] | null {
-  const text = raw?.trim() ?? '';
+export function parseBackendCmdOverride(
+  raw: string | undefined,
+): string[] | null {
+  const text = raw?.trim() ?? "";
   if (!text) return null;
   let argv: unknown;
-  if (text.startsWith('[')) {
+  if (text.startsWith("[")) {
     try {
       argv = JSON.parse(text);
     } catch {
@@ -213,8 +260,12 @@ export function parseBackendCmdOverride(raw: string | undefined): string[] | nul
   } else {
     argv = text.split(/\s+/);
   }
-  if (!Array.isArray(argv) || !argv.every((a): a is string => typeof a === 'string')) return null;
-  if (argv.length === 0 || argv[0].trim() === '') return null;
+  if (
+    !Array.isArray(argv) ||
+    !argv.every((a): a is string => typeof a === "string")
+  )
+    return null;
+  if (argv.length === 0 || argv[0].trim() === "") return null;
   return argv;
 }
 
@@ -226,18 +277,24 @@ export function backendRoot(): string {
   // out/main/index.js`), so walk up until the repo checkout is found.
   let dir = app.getAppPath();
   for (let i = 0; i < 6; i++) {
-    if (existsSync(join(dir, 'backend', 'main.py')) && existsSync(join(dir, 'pyproject.toml'))) {
+    if (
+      existsSync(join(dir, "backend", "main.py")) &&
+      existsSync(join(dir, "pyproject.toml"))
+    ) {
       return dir;
     }
-    const parent = resolve(dir, '..');
+    const parent = resolve(dir, "..");
     if (parent === dir) break;
     dir = parent;
   }
-  return resolve(app.getAppPath(), '..');
+  return resolve(app.getAppPath(), "..");
 }
 
-export function bundledUvPath(resourcesPath: string, platform = process.platform): string {
-  return join(resourcesPath, 'tools', platform === 'win32' ? 'uv.exe' : 'uv');
+export function bundledUvPath(
+  resourcesPath: string,
+  platform = process.platform,
+): string {
+  return join(resourcesPath, "tools", platform === "win32" ? "uv.exe" : "uv");
 }
 
 /**
@@ -246,8 +303,11 @@ export function bundledUvPath(resourcesPath: string, platform = process.platform
  * before any install is offered — never after a multi-GB failure.
  * Testable via parameters following bundledUvPath's precedent.
  */
-export function isUnsupportedPlatform(platform = process.platform, arch = process.arch): boolean {
-  return platform === 'darwin' && arch === 'x64';
+export function isUnsupportedPlatform(
+  platform = process.platform,
+  arch = process.arch,
+): boolean {
+  return platform === "darwin" && arch === "x64";
 }
 
 /**
@@ -263,9 +323,9 @@ export function platformSetupIssue(
   platform = process.platform,
   arch = process.arch,
   translated = app.runningUnderARM64Translation === true,
-): 'unsupported_platform' | 'wrong_architecture' | undefined {
+): "unsupported_platform" | "wrong_architecture" | undefined {
   if (!isUnsupportedPlatform(platform, arch)) return undefined;
-  return translated ? 'wrong_architecture' : 'unsupported_platform';
+  return translated ? "wrong_architecture" : "unsupported_platform";
 }
 
 function usableFile(path: string): boolean {
@@ -285,7 +345,7 @@ function findUv(): string | null {
     const bundled = bundledUvPath(process.resourcesPath);
     if (usableFile(bundled)) return bundled;
   }
-  const names = process.platform === 'win32' ? ['uv.exe', 'uv'] : ['uv'];
+  const names = process.platform === "win32" ? ["uv.exe", "uv"] : ["uv"];
   const dirs = toolSearchDirs();
   for (const dir of dirs) {
     for (const name of names) {
@@ -312,7 +372,7 @@ async function findUvAsync(): Promise<string | null> {
     const bundled = bundledUvPath(process.resourcesPath);
     if (await usable(bundled)) return bundled;
   }
-  const names = process.platform === 'win32' ? ['uv.exe', 'uv'] : ['uv'];
+  const names = process.platform === "win32" ? ["uv.exe", "uv"] : ["uv"];
   for (const dir of await toolSearchDirsAsync()) {
     for (const name of names) {
       const candidate = join(dir, name);
@@ -323,9 +383,9 @@ async function findUvAsync(): Promise<string | null> {
 }
 
 function venvPython(root: string): string {
-  return process.platform === 'win32'
-    ? join(root, '.venv', 'Scripts', 'python.exe')
-    : join(root, '.venv', 'bin', 'python');
+  return process.platform === "win32"
+    ? join(root, ".venv", "Scripts", "python.exe")
+    : join(root, ".venv", "bin", "python");
 }
 
 interface SpawnPlan {
@@ -343,16 +403,22 @@ interface LegacyInstallConfig {
 }
 
 function legacyTauriRoots(): string[] {
-  if (process.platform === 'win32') {
+  if (process.platform === "win32") {
     return [process.env.LOCALAPPDATA, process.env.APPDATA]
       .filter((value): value is string => Boolean(value))
       .map((root) => join(root, TAURI_APP_ID));
   }
-  if (process.platform === 'darwin')
-    return [join(homedir(), 'Library', 'Application Support', TAURI_APP_ID)];
+  if (process.platform === "darwin")
+    return [join(homedir(), "Library", "Application Support", TAURI_APP_ID)];
   return [
-    join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), TAURI_APP_ID),
-    join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), TAURI_APP_ID),
+    join(
+      process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+      TAURI_APP_ID,
+    ),
+    join(
+      process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
+      TAURI_APP_ID,
+    ),
   ];
 }
 
@@ -362,32 +428,41 @@ export function legacyTauriRuntimeProjects(): string[] {
   for (const root of legacyTauriRoots()) {
     let config: LegacyInstallConfig = {};
     try {
-      config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as LegacyInstallConfig;
+      config = JSON.parse(
+        readFileSync(join(root, "config.json"), "utf8"),
+      ) as LegacyInstallConfig;
     } catch {
       /* A default install may not have written configuration yet. */
     }
     const mode = config.install_mode ?? config.installMode;
     const portable = config.portable_dir ?? config.portableDir;
     const custom = config.env_dir ?? config.envDir;
-    if (mode === 'portable' && portable?.trim())
-      projects.push(join(portable.trim(), 'env', 'project'));
-    else if (custom?.trim()) projects.push(join(custom.trim(), 'project'));
-    projects.push(join(root, 'project'));
+    if (mode === "portable" && portable?.trim())
+      projects.push(join(portable.trim(), "env", "project"));
+    else if (custom?.trim()) projects.push(join(custom.trim(), "project"));
+    projects.push(join(root, "project"));
   }
   return [...new Set(projects.map((project) => resolve(project)))];
 }
 
 function defaultRuntimeRoot(): string {
-  return join(app.getPath('userData'), 'runtime');
+  return join(app.getPath("userData"), "runtime");
 }
 
 function storedRuntimeLocation(): RuntimeLocationConfig | null {
   try {
     const parsed = JSON.parse(
-      readFileSync(join(app.getPath('userData'), RUNTIME_LOCATION_FILE), 'utf8'),
+      readFileSync(
+        join(app.getPath("userData"), RUNTIME_LOCATION_FILE),
+        "utf8",
+      ),
     ) as { root?: unknown; owned?: unknown; scoped?: unknown };
-    return typeof parsed.root === 'string' && isAbsolute(parsed.root)
-      ? { root: resolve(parsed.root), owned: parsed.owned === true, scoped: parsed.scoped === true }
+    return typeof parsed.root === "string" && isAbsolute(parsed.root)
+      ? {
+          root: resolve(parsed.root),
+          owned: parsed.owned === true,
+          scoped: parsed.scoped === true,
+        }
       : null;
   } catch {
     return null;
@@ -403,26 +478,40 @@ function writeRuntimeLocation(
   owned: boolean,
   scoped: boolean = storedRuntimeLocation()?.scoped === true,
 ): void {
-  const locationFile = join(app.getPath('userData'), RUNTIME_LOCATION_FILE);
+  const locationFile = join(app.getPath("userData"), RUNTIME_LOCATION_FILE);
   mkdirSync(dirname(locationFile), { recursive: true });
-  writeFileSync(locationFile, JSON.stringify({ root: resolve(root), owned, scoped }), 'utf8');
+  writeFileSync(
+    locationFile,
+    JSON.stringify({ root: resolve(root), owned, scoped }),
+    "utf8",
+  );
 }
 
 /** The recorded first-run location whose data/models/temp follow the runtime, if any. */
 function scopedRuntimeRoot(): string | null {
   const stored = storedRuntimeLocation();
-  return stored?.scoped && !samePath(stored.root, defaultRuntimeRoot()) ? stored.root : null;
+  return stored?.scoped && !samePath(stored.root, defaultRuntimeRoot())
+    ? stored.root
+    : null;
 }
 
 function selectedRuntimeRoot(parent: string): string {
   const selected = resolve(parent);
-  return basename(selected).toLocaleLowerCase('en-US') === 'voicestudio'
+  // The runtime folder is named after the product so it is recognisable on disk.
+  const name = PRODUCT_NAME;
+  return basename(selected).toLocaleLowerCase("en-US") ===
+    name.toLocaleLowerCase("en-US")
     ? selected
-    : join(selected, 'VoiceStudio');
+    : join(selected, name);
 }
 
 /** File-manager metadata a new folder can hold; it is not another installation's data. */
-const FOLDER_METADATA = new Set(['.ds_store', '.localized', 'desktop.ini', 'thumbs.db']);
+const FOLDER_METADATA = new Set([
+  ".ds_store",
+  ".localized",
+  "desktop.ini",
+  "thumbs.db",
+]);
 
 /**
  * Whether a selected runtime root holds files Electron must not take over. The
@@ -432,23 +521,25 @@ const FOLDER_METADATA = new Set(['.ds_store', '.localized', 'desktop.ini', 'thum
 function holdsUnownedFiles(root: string): boolean {
   try {
     return readdirSync(root, { withFileTypes: true }).some(
-      (entry) => !entry.isFile() || !FOLDER_METADATA.has(entry.name.toLowerCase()),
+      (entry) =>
+        !entry.isFile() || !FOLDER_METADATA.has(entry.name.toLowerCase()),
     );
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ENOENT';
+    return (error as NodeJS.ErrnoException).code !== "ENOENT";
   }
 }
 
 /** The web UI build packaged with this app version (served to LAN devices). */
 export function bundledWebUiPath(): string {
-  return join(backendRoot(), 'frontend', 'dist');
+  return join(backendRoot(), "frontend", "dist");
 }
 
 function samePath(left: string, right: string): boolean {
   const normalizedLeft = resolve(left);
   const normalizedRight = resolve(right);
-  return process.platform === 'win32'
-    ? normalizedLeft.toLocaleLowerCase('en-US') === normalizedRight.toLocaleLowerCase('en-US')
+  return process.platform === "win32"
+    ? normalizedLeft.toLocaleLowerCase("en-US") ===
+        normalizedRight.toLocaleLowerCase("en-US")
     : normalizedLeft === normalizedRight;
 }
 
@@ -460,27 +551,33 @@ export async function resolveSpawnPlan(
   const override = parseBackendCmdOverride(process.env.OMNIVOICE_BACKEND_CMD);
   if (override) return { argv: override, cwd: root };
   if (app.isPackaged) {
-    const project = packagedProject ?? join(defaultRuntimeRoot(), 'project');
+    const project = packagedProject ?? join(defaultRuntimeRoot(), "project");
     // Heals runtimes installed before #1783 was fixed without a repair run.
-    await asciiSafePthFiles(join(project, '.venv')).catch(() => []);
+    await asciiSafePthFiles(join(project, ".venv")).catch(() => []);
     return {
-      argv: [runtimePython(project), '-m', ...UVICORN_ARGS, '--port', String(port)],
+      argv: [
+        runtimePython(project),
+        "-m",
+        ...UVICORN_ARGS,
+        "--port",
+        String(port),
+      ],
       cwd: project,
     };
   }
   // Setup is explicit: `uv run` can sync gigabytes inside the health-check
   // deadline and repeat that download after every restart (#2184).
-  const portArg = ['--port', String(port)];
+  const portArg = ["--port", String(port)];
   const python = venvPython(root);
   const setup = `Open a terminal in ${root}, run \`bun run setup:api\`, wait for it to finish, then restart.`;
   if (!existsSync(python)) {
     // Not a source checkout and not a packaged app (a copied folder, a
     // download of the wrong archive): setup:api does not exist there (#2988).
-    if (!existsSync(join(root, 'pyproject.toml'))) {
+    if (!existsSync(join(root, "pyproject.toml"))) {
       return {
         error:
           `The Python environment in ${root} is missing (no ${relative(root, python)}), and this is not a VoiceStudio source checkout. ` +
-          'Install VoiceStudio from the release installer, or clone the repository and run `bun run setup:api` inside it.',
+          "Install VoiceStudio from the release installer, or clone the repository and run `bun run setup:api` inside it.",
       };
     }
     return {
@@ -489,27 +586,29 @@ export async function resolveSpawnPlan(
   }
   // Name the import that failed (#2555): "incomplete" alone cannot tell a
   // setup that never ran from one that finished but cannot load a module.
-  let failure = '';
+  let failure = "";
   if (devProbeStamped(root, python)) {
-    return { argv: [python, '-m', ...UVICORN_ARGS, ...portArg], cwd: root };
+    return { argv: [python, "-m", ...UVICORN_ARGS, ...portArg], cwd: root };
   }
   if (await runtimeDependenciesReady(root, (detail) => (failure = detail))) {
     writeDevProbeStamp(root, python);
-    return { argv: [python, '-m', ...UVICORN_ARGS, ...portArg], cwd: root };
+    return { argv: [python, "-m", ...UVICORN_ARGS, ...portArg], cwd: root };
   }
   return {
     error:
-      `The Python environment in ${root} is incomplete${failure ? `: ${failure}` : ''}. ${setup} ` +
-      'If setup already finished without errors, include this message and the setup output in a bug report.',
+      `The Python environment in ${root} is incomplete${failure ? `: ${failure}` : ""}. ${setup} ` +
+      "If setup already finished without errors, include this message and the setup output in a bug report.",
   };
 }
 
 /** The port of the electron-vite dev renderer URL, if it is a local http URL. */
-export function devRendererPort(rendererUrl: string | undefined): string | null {
+export function devRendererPort(
+  rendererUrl: string | undefined,
+): string | null {
   if (!rendererUrl) return null;
   try {
     const url = new URL(rendererUrl);
-    return url.protocol === 'http:' && url.port ? url.port : null;
+    return url.protocol === "http:" && url.port ? url.port : null;
   } catch {
     return null;
   }
@@ -517,7 +616,7 @@ export function devRendererPort(rendererUrl: string | undefined): string | null 
 
 function childEnv(
   port: number,
-  region: RuntimeRegion = 'auto',
+  region: RuntimeRegion = "auto",
   platform = process.platform,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -536,23 +635,30 @@ function childEnv(
     }
   }
   const packagedToken =
-    typeof __POSTHOG_PROJECT_TOKEN__ === 'string' ? __POSTHOG_PROJECT_TOKEN__ : '';
-  const packagedHost = typeof __POSTHOG_HOST__ === 'string' ? __POSTHOG_HOST__ : '';
+    typeof __POSTHOG_PROJECT_TOKEN__ === "string"
+      ? __POSTHOG_PROJECT_TOKEN__
+      : "";
+  const packagedHost =
+    typeof __POSTHOG_HOST__ === "string" ? __POSTHOG_HOST__ : "";
   if (packagedToken && !env.POSTHOG_PROJECT_TOKEN) {
     env.POSTHOG_PROJECT_TOKEN = packagedToken;
   }
   if (packagedHost && !env.POSTHOG_HOST) env.POSTHOG_HOST = packagedHost;
   delete env.PYTHONHOME;
   delete env.PYTHONPATH;
-  env.PYTHONUNBUFFERED = '1';
-  env.PYTHONUTF8 = '1';
+  env.PYTHONUNBUFFERED = "1";
+  env.PYTHONUTF8 = "1";
   // Arms backend/core/parent_liveness.py: stdin EOF == "the shell is gone".
-  env.OMNIVOICE_DESKTOP_CONTAINED = '1';
+  env.OMNIVOICE_DESKTOP_CONTAINED = "1";
   env.OMNIVOICE_PORT = String(port);
   // The dev renderer is served by Vite on a real port; tell the backend so
   // Settings -> Sharing reports it. Packaged builds serve app:// (no port).
   const rendererPort = devRendererPort(env.ELECTRON_RENDERER_URL);
-  if (rendererPort && !env.OMNIVOICE_UI_PORT?.trim() && !env.VOICESTUDIO_UI_PORT?.trim())
+  if (
+    rendererPort &&
+    !env.OMNIVOICE_UI_PORT?.trim() &&
+    !env.VOICESTUDIO_UI_PORT?.trim()
+  )
     env.OMNIVOICE_UI_PORT = rendererPort;
   // #2215: the backend resolves uv as OMNIVOICE_BUNDLED_UV first and
   // `shutil.which("uv")` second. The packaged uv lives in resources/tools,
@@ -569,16 +675,20 @@ function childEnv(
   // #2599: LAN devices load the web UI from this backend. Serve the build
   // shipped inside this app version's resources, never a copy beside the
   // runtime project (absent on updated installs, stale after an update).
-  if (app.isPackaged && process.resourcesPath && !env.OMNIVOICE_FRONTEND_DIST?.trim()) {
+  if (
+    app.isPackaged &&
+    process.resourcesPath &&
+    !env.OMNIVOICE_FRONTEND_DIST?.trim()
+  ) {
     env.OMNIVOICE_FRONTEND_DIST = bundledWebUiPath();
   }
-  if (region === 'china') env.HF_ENDPOINT ??= 'https://hf-mirror.com';
-  if (platform === 'win32') {
-    env.TORCHDYNAMO_DISABLE = '1';
-    env.HF_HUB_DISABLE_SYMLINKS = '1';
-    env.HF_HUB_DISABLE_SYMLINKS_WARNING = '1';
+  if (region === "china") env.HF_ENDPOINT ??= "https://hf-mirror.com";
+  if (platform === "win32") {
+    env.TORCHDYNAMO_DISABLE = "1";
+    env.HF_HUB_DISABLE_SYMLINKS = "1";
+    env.HF_HUB_DISABLE_SYMLINKS_WARNING = "1";
     // MKL's Fortran runtime aborts the child on console CLOSE/LOGOFF events (#1153).
-    env.FOR_DISABLE_CONSOLE_CTRL_HANDLER ??= '1';
+    env.FOR_DISABLE_CONSOLE_CTRL_HANDLER ??= "1";
   }
   return env;
 }
@@ -590,7 +700,9 @@ function childEnv(
  */
 const backendOnlyEnv: Record<string, string> = {};
 
-export function setBackendOnlyEnv(vars: Record<string, string | undefined>): void {
+export function setBackendOnlyEnv(
+  vars: Record<string, string | undefined>,
+): void {
   for (const [key, value] of Object.entries(vars)) {
     if (value === undefined) delete backendOnlyEnv[key];
     else backendOnlyEnv[key] = value;
@@ -599,15 +711,18 @@ export function setBackendOnlyEnv(vars: Record<string, string | undefined>): voi
 
 export function managedBackendSpawnOptions(
   port: number,
-  region: RuntimeRegion = 'auto',
+  region: RuntimeRegion = "auto",
   platform = process.platform,
 ): { env: NodeJS.ProcessEnv; stdio: StdioOptions; drainFd: number | null } {
-  const drainFd = platform === 'win32' ? null : 3;
+  const drainFd = platform === "win32" ? null : 3;
   const env = { ...childEnv(port, region, platform), ...backendOnlyEnv };
   if (drainFd !== null) env.OMNIVOICE_DESKTOP_DRAIN_FD = String(drainFd);
   return {
     env,
-    stdio: drainFd === null ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe', 'pipe'],
+    stdio:
+      drainFd === null
+        ? ["pipe", "pipe", "pipe"]
+        : ["pipe", "pipe", "pipe", "pipe"],
     drainFd,
   };
 }
@@ -623,7 +738,9 @@ export function spawnFailureMessage(
 ): string {
   const detail = errorMessage(error);
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  const launchRejected = ['ENOENT', 'UNKNOWN', 'EACCES', 'EPERM'].includes(code ?? '');
+  const launchRejected = ["ENOENT", "UNKNOWN", "EACCES", "EPERM"].includes(
+    code ?? "",
+  );
   if (!launchRejected) return `Could not start ${command}: ${detail}`;
   return runtimeOwned
     ? `Could not start ${command}: ${detail}. Install or repair the local runtime, then restart VoiceStudio.`
@@ -641,12 +758,12 @@ export function startupTimeoutMessage(
 ): string {
   const base =
     `Backend did not answer on port ${port} within ${Math.round(budgetMs / 1000)} s ` +
-    '(OMNIVOICE_STARTUP_BUDGET_S).';
+    "(OMNIVOICE_STARTUP_BUDGET_S).";
   if (!owned) return `${base} Nothing was spawned for this attempt.`;
   const advice =
-    ' Slow disks and antivirus scanning of the runtime folder are the usual cause: click Retry, ' +
-    'exclude the VoiceStudio runtime folder from real-time scanning, or raise OMNIVOICE_STARTUP_BUDGET_S ' +
-    '(for example 900).';
+    " Slow disks and antivirus scanning of the runtime folder are the usual cause: click Retry, " +
+    "exclude the VoiceStudio runtime folder from real-time scanning, or raise OMNIVOICE_STARTUP_BUDGET_S " +
+    "(for example 900).";
   return lastOutput
     ? `${base} Last output: ${lastOutput}${advice}`
     : `${base} It printed no output.${advice}`;
@@ -660,10 +777,13 @@ export class BackendSupervisor extends EventEmitter<{
   status: [BackendStatus];
 }> {
   private readonly crashes = new CrashJournal(
-    join(app.getPath('userData'), 'backend-crashes.json'),
+    join(app.getPath("userData"), "backend-crashes.json"),
     __APP_VERSION__,
   );
-  private readonly remotePath = join(app.getPath('userData'), 'remote-backend.json');
+  private readonly remotePath = join(
+    app.getPath("userData"),
+    "remote-backend.json",
+  );
   private readonly configuredPort = resolvePort();
   private localPort = this.configuredPort;
   get port(): number {
@@ -671,9 +791,10 @@ export class BackendSupervisor extends EventEmitter<{
   }
   private remoteUrl = loadRemoteBackend(this.remotePath);
   private remoteSession: RemoteSession | null = null;
-  private testedRemote: { url: string; session: RemoteSession | null } | null = null;
+  private testedRemote: { url: string; session: RemoteSession | null } | null =
+    null;
 
-  private stage: BackendStage = 'idle';
+  private stage: BackendStage = "idle";
   private managed = false;
   private message: string | undefined;
   private exitCode: number | null | undefined;
@@ -695,15 +816,15 @@ export class BackendSupervisor extends EventEmitter<{
    * the kernel accepted the connection while the event loop was blocked (a
    * long job can hold it for hours), and `rejected` means it answered unhealthy.
    */
-  private lastProbeOutcome: 'ok' | 'timeout' | 'refused' | 'rejected' = 'ok';
+  private lastProbeOutcome: "ok" | "timeout" | "refused" | "rejected" = "ok";
   private shuttingDown = false;
-  private diagnosis: BackendStatus['diagnosis'];
-  private setupIssue: BackendStatus['setupIssue'];
+  private diagnosis: BackendStatus["diagnosis"];
+  private setupIssue: BackendStatus["setupIssue"];
   private setupRequiredGib: number | undefined;
   private runtimeInterrupted = false;
   private repairAttempted = false;
   private runtimeRepairFailed = false;
-  private setupPhase: BackendStatus['setupPhase'] = 'checking';
+  private setupPhase: BackendStatus["setupPhase"] = "checking";
   private readonly setupProgress = new SetupProgressTracker();
   private installation: AbortController | null = null;
   private cleaningRuntime = false;
@@ -726,20 +847,26 @@ export class BackendSupervisor extends EventEmitter<{
   async hostSnapshot(): Promise<HostSnapshot> {
     // Same location resolveSpawnPlan() launches from.
     const project = app.isPackaged
-      ? (this.runtimeProject ?? join(storedRuntimeRoot() ?? defaultRuntimeRoot(), 'project'))
+      ? (this.runtimeProject ??
+        join(storedRuntimeRoot() ?? defaultRuntimeRoot(), "project"))
       : backendRoot();
     return collectHostSnapshot({
       runtimeProject: project,
       runtimePython: runtimePython(project),
       uv: findUvAsync,
       gpu: async () => {
-        const info = (await app.getGPUInfo('basic')) as {
-          gpuDevice?: { vendorId?: number; deviceId?: number; active?: boolean; driverVersion?: string }[];
+        const info = (await app.getGPUInfo("basic")) as {
+          gpuDevice?: {
+            vendorId?: number;
+            deviceId?: number;
+            active?: boolean;
+            driverVersion?: string;
+          }[];
         };
         const devices = info.gpuDevice ?? [];
         const active = devices.find((device) => device.active) ?? devices[0];
         return active
-          ? `vendor 0x${(active.vendorId ?? 0).toString(16)} device 0x${(active.deviceId ?? 0).toString(16)}${active.driverVersion ? ` driver ${active.driverVersion}` : ''}`
+          ? `vendor 0x${(active.vendorId ?? 0).toString(16)} device 0x${(active.deviceId ?? 0).toString(16)}${active.driverVersion ? ` driver ${active.driverVersion}` : ""}`
           : null;
       },
     });
@@ -751,13 +878,16 @@ export class BackendSupervisor extends EventEmitter<{
     // backend transport gates can recognize the desktop. Chromium forbids
     // overriding Origin itself in net.fetch.
     return {
-      'X-VoiceStudio-Desktop-Origin': APP_ORIGIN,
+      "X-VoiceStudio-Desktop-Origin": APP_ORIGIN,
       ...(session ? { Authorization: `Bearer ${session.token}` } : {}),
     };
   }
 
   private activeSession(): RemoteSession | null {
-    if (this.remoteSession && this.remoteSession.expiresAt > Date.now() / 1000) {
+    if (
+      this.remoteSession &&
+      this.remoteSession.expiresAt > Date.now() / 1000
+    ) {
       return this.remoteSession;
     }
     this.remoteSession = null;
@@ -776,9 +906,13 @@ export class BackendSupervisor extends EventEmitter<{
       lastCrash: this.crashes.latest(),
       ...(app.isPackaged
         ? {
-            runtimePath: dirname(this.runtimeProject ?? join(defaultRuntimeRoot(), 'project')),
+            runtimePath: dirname(
+              this.runtimeProject ?? join(defaultRuntimeRoot(), "project"),
+            ),
             runtimeCustom: !samePath(
-              dirname(this.runtimeProject ?? join(defaultRuntimeRoot(), 'project')),
+              dirname(
+                this.runtimeProject ?? join(defaultRuntimeRoot(), "project"),
+              ),
               defaultRuntimeRoot(),
             ),
             runtimeRegion: this.runtimeRegion,
@@ -786,14 +920,19 @@ export class BackendSupervisor extends EventEmitter<{
           }
         : {}),
     };
-    if (this.stage === 'setup_required' && this.setupIssue) status.setupIssue = this.setupIssue;
-    if (this.stage === 'setup_required' && this.setupIssue === 'space' && this.setupRequiredGib)
+    if (this.stage === "setup_required" && this.setupIssue)
+      status.setupIssue = this.setupIssue;
+    if (
+      this.stage === "setup_required" &&
+      this.setupIssue === "space" &&
+      this.setupRequiredGib
+    )
       status.setupRequiredGib = this.setupRequiredGib;
-    if (this.stage === 'setup_required' && this.runtimeInterrupted)
+    if (this.stage === "setup_required" && this.runtimeInterrupted)
       status.runtimeInterrupted = true;
-    if (this.stage === 'setup_required' && this.runtimeRepairFailed)
+    if (this.stage === "setup_required" && this.runtimeRepairFailed)
       status.runtimeRepairFailed = true;
-    if (this.stage === 'installing') {
+    if (this.stage === "installing") {
       status.setupPhase = this.setupPhase;
       status.setupProgress = this.setupProgress.snapshot();
     }
@@ -805,9 +944,9 @@ export class BackendSupervisor extends EventEmitter<{
   }
 
   subscribe(listener: StatusListener): () => void {
-    this.on('status', listener);
+    this.on("status", listener);
     return () => {
-      this.off('status', listener);
+      this.off("status", listener);
     };
   }
 
@@ -829,7 +968,7 @@ export class BackendSupervisor extends EventEmitter<{
     // not quote the installer — setupRuntime's uv children share this ring.
     this.childLog.length = 0;
     this.lastChildOutputAt = 0;
-    this.setStage('attaching', { managed: false, message: undefined });
+    this.setStage("attaching", { managed: false, message: undefined });
     try {
       if (await this.probe()) {
         if (gen !== this.generation) return;
@@ -840,7 +979,7 @@ export class BackendSupervisor extends EventEmitter<{
       if (gen !== this.generation) return;
 
       if (this.remoteUrl) {
-        this.setStage('failed', {
+        this.setStage("failed", {
           managed: false,
           message: `Could not reach the configured remote backend at ${this.remoteUrl}.`,
         });
@@ -851,8 +990,8 @@ export class BackendSupervisor extends EventEmitter<{
         return;
       }
 
-      if (process.env.VOICESTUDIO_SKIP_BACKEND === '1') {
-        this.setStage('attaching', {
+      if (process.env.VOICESTUDIO_SKIP_BACKEND === "1") {
+        this.setStage("attaching", {
           message: `VOICESTUDIO_SKIP_BACKEND=1 — waiting for an external backend on port ${this.port}`,
         });
         void this.waitUntilReady(gen, Number.POSITIVE_INFINITY);
@@ -872,7 +1011,10 @@ export class BackendSupervisor extends EventEmitter<{
         }
       }
 
-      if (app.isPackaged && !parseBackendCmdOverride(process.env.OMNIVOICE_BACKEND_CMD)) {
+      if (
+        app.isPackaged &&
+        !parseBackendCmdOverride(process.env.OMNIVOICE_BACKEND_CMD)
+      ) {
         const { project, ready } = await this.resolveRuntimeProject();
         if (!ready) {
           if (gen === this.generation) {
@@ -882,26 +1024,29 @@ export class BackendSupervisor extends EventEmitter<{
               repairAttempted: this.repairAttempted,
               unsupported: isUnsupportedPlatform(),
             });
-            this.runtimeRepairFailed = action === 'repair_failed';
+            this.runtimeRepairFailed = action === "repair_failed";
             this.runtimeInterrupted = await runtimeInstallInterrupted(project);
             // Intel Macs can never resolve the runtime (#889), and the Intel
             // build under Rosetta resolves the same wheels (#2598): say so
             // now, before the setup screen offers an install that must fail.
             this.setupIssue = platformSetupIssue();
             this.setStage(
-              'setup_required',
-              action === 'repair_failed'
+              "setup_required",
+              action === "repair_failed"
                 ? {
                     message:
-                      'The Python environment is missing and automatic repair did not finish. ' +
-                      `See the engine log in ${app.getPath('logs')}.`,
+                      "The Python environment is missing and automatic repair did not finish. " +
+                      `See the engine log in ${app.getPath("logs")}.`,
                   }
                 : undefined,
             );
-            if (action === 'repair') {
+            if (action === "repair") {
               // Same flow as the setup wizard, one attempt per launch (no loop).
               this.repairAttempted = true;
-              this.pushLog('out', `Python environment missing in ${project}; repairing it.`);
+              this.pushLog(
+                "out",
+                `Python environment missing in ${project}; repairing it.`,
+              );
               void this.setupRuntime();
             }
           }
@@ -918,10 +1063,16 @@ export class BackendSupervisor extends EventEmitter<{
         !parseBackendCmdOverride(process.env.OMNIVOICE_BACKEND_CMD)
       ) {
         let identifiedBackend = false;
-        const port = await availableBackendPort(this.port, async (candidate) => {
-          identifiedBackend = await this.probe(`http://127.0.0.1:${candidate}`, true);
-          return identifiedBackend;
-        });
+        const port = await availableBackendPort(
+          this.port,
+          async (candidate) => {
+            identifiedBackend = await this.probe(
+              `http://127.0.0.1:${candidate}`,
+              true,
+            );
+            return identifiedBackend;
+          },
+        );
         if (gen !== this.generation) return;
         this.localPort = port;
         if (port !== this.configuredPort) {
@@ -939,20 +1090,23 @@ export class BackendSupervisor extends EventEmitter<{
           }
         }
       }
-      const plan = await resolveSpawnPlan(this.port, this.runtimeProject ?? undefined);
+      const plan = await resolveSpawnPlan(
+        this.port,
+        this.runtimeProject ?? undefined,
+      );
       if (gen !== this.generation) return;
-      if ('error' in plan) {
-        this.setStage('failed', { message: plan.error });
+      if ("error" in plan) {
+        this.setStage("failed", { message: plan.error });
         return;
       }
       this.spawnChild(plan, gen);
-      if (gen !== this.generation || this.stage !== 'starting') return;
+      if (gen !== this.generation || this.stage !== "starting") return;
       void this.waitUntilReady(gen, startupBudgetMs());
     } catch (error) {
       if (gen !== this.generation) return;
       const message = errorMessage(error);
-      this.pushLog('err', message);
-      this.setStage('failed', { message });
+      this.pushLog("err", message);
+      this.setStage("failed", { message });
     }
   }
 
@@ -963,14 +1117,15 @@ export class BackendSupervisor extends EventEmitter<{
       !app.isPackaged ||
       this.installation ||
       this.cleaningRuntime ||
-      this.stage !== 'setup_required' ||
+      this.stage !== "setup_required" ||
       // The setup screen hides the install CTA here; refuse direct IPC too —
       // the dependency set can never resolve on this host (#2365).
       isUnsupportedPlatform()
     )
       return;
     let project =
-      this.runtimeProject ?? join(storedRuntimeRoot() ?? defaultRuntimeRoot(), 'project');
+      this.runtimeProject ??
+      join(storedRuntimeRoot() ?? defaultRuntimeRoot(), "project");
     this.runtimeProject = project;
     const controller = new AbortController();
     this.installation = controller;
@@ -982,9 +1137,9 @@ export class BackendSupervisor extends EventEmitter<{
     this.setupRequiredGib = undefined;
     this.runtimeRepairFailed = false;
     this.runtimeInterrupted = false;
-    this.setupPhase = 'checking';
+    this.setupPhase = "checking";
     this.setupProgress.reset();
-    this.setStage('installing', { message: undefined });
+    this.setStage("installing", { message: undefined });
     try {
       const reusable =
         ((await runtimeReady(backendRoot(), project)) ||
@@ -1007,12 +1162,12 @@ export class BackendSupervisor extends EventEmitter<{
         // An explicit setup action may create a new runtime, but must never
         // take ownership of (or repair in place) another installation's files.
         runtimeRoot = defaultRuntimeRoot();
-        project = join(runtimeRoot, 'project');
+        project = join(runtimeRoot, "project");
         this.runtimeProject = project;
         writeRuntimeLocation(runtimeRoot, true);
         this.pushLog(
-          'out',
-          'Creating a separate Electron runtime; existing environment preserved.',
+          "out",
+          "Creating a separate Electron runtime; existing environment preserved.",
         );
         this.emitStatus();
         const fallbackReusable =
@@ -1048,33 +1203,38 @@ export class BackendSupervisor extends EventEmitter<{
               cwd,
               env: { ...childEnv(this.port, this.runtimeRegion), ...env },
               windowsHide: true,
-              detached: process.platform !== 'win32',
-              stdio: ['pipe', 'pipe', 'pipe'],
+              detached: process.platform !== "win32",
+              stdio: ["pipe", "pipe", "pipe"],
             });
             this.child = child;
-            let capturedStdout = '';
-            child.stdin?.on('error', () => {});
-            child.stdout?.on('data', (chunk: Buffer | string) => {
-              capturedStdout = (capturedStdout + chunk.toString()).slice(-65_536);
+            let capturedStdout = "";
+            child.stdin?.on("error", () => {});
+            child.stdout?.on("data", (chunk: Buffer | string) => {
+              capturedStdout = (capturedStdout + chunk.toString()).slice(
+                -65_536,
+              );
             });
-            this.attachLineReader(child.stdout, 'out');
-            this.attachLineReader(child.stderr, 'err');
-            child.on('error', (err) =>
+            this.attachLineReader(child.stdout, "out");
+            this.attachLineReader(child.stderr, "err");
+            child.on("error", (err) =>
               reject(
                 Object.assign(new Error(spawnFailureMessage(command, err)), {
                   code: (err as NodeJS.ErrnoException | undefined)?.code,
                 }),
               ),
             );
-            child.on('close', (code) => {
+            child.on("close", (code) => {
               if (this.child === child) this.child = null;
               if (code === 0) resolve(capturedStdout);
               else
                 reject(
-                  Object.assign(new Error(`Runtime setup exited with code ${code}`), {
-                    code,
-                    stdout: capturedStdout,
-                  }),
+                  Object.assign(
+                    new Error(`Runtime setup exited with code ${code}`),
+                    {
+                      code,
+                      stdout: capturedStdout,
+                    },
+                  ),
                 );
             });
           }),
@@ -1091,19 +1251,21 @@ export class BackendSupervisor extends EventEmitter<{
       if (gen === this.generation) {
         const code = (error as NodeJS.ErrnoException)?.code;
         this.setupIssue =
-          code === 'INTEL_MAC_UNSUPPORTED'
-            ? (platformSetupIssue() ?? 'unsupported_platform')
-            : code === 'ENOSPC'
-              ? 'space'
-              : ['EACCES', 'EPERM', 'EROFS'].includes(code || '')
-                ? 'access'
+          code === "INTEL_MAC_UNSUPPORTED"
+            ? (platformSetupIssue() ?? "unsupported_platform")
+            : code === "ENOSPC"
+              ? "space"
+              : ["EACCES", "EPERM", "EROFS"].includes(code || "")
+                ? "access"
                 : undefined;
         this.setupRequiredGib =
-          code === 'ENOSPC' ? (error as { requiredGib?: number }).requiredGib : undefined;
+          code === "ENOSPC"
+            ? (error as { requiredGib?: number }).requiredGib
+            : undefined;
         this.runtimeRepairFailed = this.repairAttempted;
         this.runtimeInterrupted = await runtimeInstallInterrupted(project);
-        this.pushLog('err', errorMessage(error));
-        this.setStage('setup_required', { message: errorMessage(error) });
+        this.pushLog("err", errorMessage(error));
+        this.setStage("setup_required", { message: errorMessage(error) });
       }
     } finally {
       if (this.installation === controller) this.installation = null;
@@ -1117,20 +1279,22 @@ export class BackendSupervisor extends EventEmitter<{
       !app.isPackaged ||
       this.installation ||
       this.cleaningRuntime ||
-      this.stage !== 'setup_required'
+      this.stage !== "setup_required"
     )
       return;
     const configured = storedRuntimeLocation();
     const candidate =
-      this.runtimeProject ?? join(configured?.root ?? defaultRuntimeRoot(), 'project');
+      this.runtimeProject ??
+      join(configured?.root ?? defaultRuntimeRoot(), "project");
     const runtimeRoot = dirname(candidate);
-    const project = join(runtimeRoot, 'project');
+    const project = join(runtimeRoot, "project");
     if (!samePath(candidate, project))
-      throw new Error('Runtime cleanup refused for an invalid project path');
+      throw new Error("Runtime cleanup refused for an invalid project path");
     const owned =
       samePath(runtimeRoot, defaultRuntimeRoot()) ||
       Boolean(configured?.owned && samePath(configured.root, runtimeRoot));
-    if (!owned) throw new Error('Runtime cleanup refused for an unowned environment');
+    if (!owned)
+      throw new Error("Runtime cleanup refused for an unowned environment");
     this.runtimeProject = project;
     const gen = this.generation;
     this.cleaningRuntime = true;
@@ -1139,13 +1303,13 @@ export class BackendSupervisor extends EventEmitter<{
       await rm(project, { recursive: true, force: true });
     } catch (error) {
       if (gen === this.generation) {
-        this.setupIssue = ['EACCES', 'EPERM', 'EROFS'].includes(
-          (error as NodeJS.ErrnoException).code || '',
+        this.setupIssue = ["EACCES", "EPERM", "EROFS"].includes(
+          (error as NodeJS.ErrnoException).code || "",
         )
-          ? 'access'
+          ? "access"
           : undefined;
-        this.pushLog('err', errorMessage(error));
-        this.setStage('setup_required', { message: errorMessage(error) });
+        this.pushLog("err", errorMessage(error));
+        this.setStage("setup_required", { message: errorMessage(error) });
       }
       return;
     } finally {
@@ -1155,7 +1319,7 @@ export class BackendSupervisor extends EventEmitter<{
     this.setupIssue = undefined;
     this.setupRequiredGib = undefined;
     this.runtimeInterrupted = false;
-    this.setupPhase = 'checking';
+    this.setupPhase = "checking";
     this.message = undefined;
     await this.setupRuntime();
   }
@@ -1176,12 +1340,13 @@ export class BackendSupervisor extends EventEmitter<{
     await this.killChild(true);
     this.exitCode = undefined;
     this.exitSignal = undefined;
-    this.setStage('idle', { managed: false, message: undefined });
+    this.setStage("idle", { managed: false, message: undefined });
   }
 
   async testRemote(url: string, apiKey: string): Promise<RemoteBackendProbe> {
     const result = await probeRemoteBackend(url, apiKey);
-    if (result.ok) this.testedRemote = { url: result.target, session: result.session };
+    if (result.ok)
+      this.testedRemote = { url: result.target, session: result.session };
     else this.testedRemote = null;
     return result.ok
       ? {
@@ -1194,12 +1359,12 @@ export class BackendSupervisor extends EventEmitter<{
   }
 
   async useRemote(url: string, apiKey: string): Promise<RemoteBackendProbe> {
-    const trimmed = url.trim().replace(/\/+$/, '');
+    const trimmed = url.trim().replace(/\/+$/, "");
     let result;
     if (!apiKey.trim() && this.testedRemote?.url === trimmed) {
       result = {
         ok: true as const,
-        detail: '',
+        detail: "",
         target: this.testedRemote.url,
         session: this.testedRemote.session,
       };
@@ -1229,7 +1394,7 @@ export class BackendSupervisor extends EventEmitter<{
     saveRemoteBackend(this.remotePath, null);
     if (target && session) {
       void fetch(`${target}/api/auth/session`, {
-        method: 'DELETE',
+        method: "DELETE",
         headers: { Authorization: `Bearer ${session.token}` },
         signal: AbortSignal.timeout(1500),
       }).catch(() => {});
@@ -1241,36 +1406,42 @@ export class BackendSupervisor extends EventEmitter<{
   private runtimeStorage(): { runtimeStorage?: ScopedStorage } {
     const scoped = scopedRuntimeRoot();
     const root = this.runtimeProject ? dirname(this.runtimeProject) : null;
-    return scoped && root && samePath(scoped, root) ? { runtimeStorage: scopedStorage(scoped) } : {};
+    return scoped && root && samePath(scoped, root)
+      ? { runtimeStorage: scopedStorage(scoped) }
+      : {};
   }
 
   setRuntimeLocation(parent: string | null): { path: string; custom: boolean } {
     if (
       !app.isPackaged ||
-      this.stage !== 'setup_required' ||
+      this.stage !== "setup_required" ||
       this.installation ||
       this.cleaningRuntime
     )
-      throw new Error('runtime_location_unavailable');
+      throw new Error("runtime_location_unavailable");
     const defaultRoot = defaultRuntimeRoot();
     const root = parent === null ? defaultRoot : selectedRuntimeRoot(parent);
-    const locationFile = join(app.getPath('userData'), RUNTIME_LOCATION_FILE);
+    const locationFile = join(app.getPath("userData"), RUNTIME_LOCATION_FILE);
     if (samePath(root, defaultRoot)) {
       rmSync(locationFile, { force: true });
     } else {
       writeRuntimeLocation(root, false, true);
     }
-    this.runtimeProject = join(root, 'project');
+    this.runtimeProject = join(root, "project");
     this.message = undefined;
     this.emitStatus();
     return { path: root, custom: !samePath(root, defaultRoot) };
   }
 
   setRuntimeRegion(raw: unknown): RuntimeRegion {
-    if (this.stage !== 'setup_required' || this.installation || this.cleaningRuntime)
-      throw new Error('runtime_region_unavailable');
-    if (typeof raw !== 'string' || !RUNTIME_REGIONS.has(raw as RuntimeRegion))
-      throw new Error('invalid_runtime_region');
+    if (
+      this.stage !== "setup_required" ||
+      this.installation ||
+      this.cleaningRuntime
+    )
+      throw new Error("runtime_region_unavailable");
+    if (typeof raw !== "string" || !RUNTIME_REGIONS.has(raw as RuntimeRegion))
+      throw new Error("invalid_runtime_region");
     this.runtimeRegion = raw as RuntimeRegion;
     writeFileSync(
       runtimePreferencesPath(),
@@ -1283,7 +1454,8 @@ export class BackendSupervisor extends EventEmitter<{
   /** A custom runtime is removable only when this Electron install created it. */
   get ownedRuntimeRoot(): string | null {
     const configured = storedRuntimeLocation();
-    return configured?.owned === true && !samePath(configured.root, defaultRuntimeRoot())
+    return configured?.owned === true &&
+      !samePath(configured.root, defaultRuntimeRoot())
       ? configured.root
       : null;
   }
@@ -1296,11 +1468,19 @@ export class BackendSupervisor extends EventEmitter<{
   get ownedRuntimeEntries(): string | string[] | null {
     const root = this.ownedRuntimeRoot;
     if (!root || storedRuntimeLocation()?.scoped !== true) return root;
-    return ['project', '.uv-cache', '.python', '.tmp', 'tmp'].map((name) => join(root, name));
+    return ["project", ".uv-cache", ".python", ".tmp", "tmp"].map((name) =>
+      join(root, name),
+    );
   }
 
-  websocketUrl(path: '/ws/transcribe' | '/ws/events' | '/ws/tts'): Promise<string> {
-    return remoteWebSocketUrl(this.baseUrl, path, this.remoteUrl ? this.activeSession() : null);
+  websocketUrl(
+    path: "/ws/transcribe" | "/ws/events" | "/ws/tts",
+  ): Promise<string> {
+    return remoteWebSocketUrl(
+      this.baseUrl,
+      path,
+      this.remoteUrl ? this.activeSession() : null,
+    );
   }
 
   private setStage(
@@ -1308,33 +1488,41 @@ export class BackendSupervisor extends EventEmitter<{
     patch: {
       managed?: boolean;
       message?: string | undefined;
-      diagnosis?: BackendStatus['diagnosis'];
+      diagnosis?: BackendStatus["diagnosis"];
     } = {},
   ): void {
     this.stage = stage;
     this.diagnosis = patch.diagnosis;
-    if ('managed' in patch) this.managed = patch.managed ?? false;
-    if ('message' in patch) this.message = patch.message;
+    if ("managed" in patch) this.managed = patch.managed ?? false;
+    if ("message" in patch) this.message = patch.message;
     this.emitStatus();
   }
 
-  private async resolveRuntimeProject(): Promise<{ project: string; ready: boolean }> {
+  private async resolveRuntimeProject(): Promise<{
+    project: string;
+    ready: boolean;
+  }> {
     const bundle = backendRoot();
-    const own = join(defaultRuntimeRoot(), 'project');
+    const own = join(defaultRuntimeRoot(), "project");
     const configuredRoot = storedRuntimeRoot();
-    const configured = configuredRoot ? join(configuredRoot, 'project') : null;
+    const configured = configuredRoot ? join(configuredRoot, "project") : null;
     // Explicit selection is authoritative, including when it needs setup.
     const candidates = (
-      configured ? [configured] : [this.runtimeProject, own, ...legacyTauriRuntimeProjects()]
+      configured
+        ? [configured]
+        : [this.runtimeProject, own, ...legacyTauriRuntimeProjects()]
     ).filter((candidate): candidate is string => Boolean(candidate));
-    for (const project of new Set(candidates.map((candidate) => resolve(candidate)))) {
+    for (const project of new Set(
+      candidates.map((candidate) => resolve(candidate)),
+    )) {
       if (
-        ((await runtimeReady(bundle, project)) || (await runtimeCompatible(bundle, project))) &&
+        ((await runtimeReady(bundle, project)) ||
+          (await runtimeCompatible(bundle, project))) &&
         (await runtimeDependenciesReady(project))
       ) {
         this.runtimeProject = project;
         if (project !== own && project !== configured)
-          this.pushLog('out', `Reusing compatible Tauri runtime: ${project}`);
+          this.pushLog("out", `Reusing compatible Tauri runtime: ${project}`);
         return { project, ready: true };
       }
     }
@@ -1343,18 +1531,23 @@ export class BackendSupervisor extends EventEmitter<{
   }
 
   private emitStatus(): void {
-    this.emit('status', this.status);
+    this.emit("status", this.status);
   }
 
-  private pushLog(stream: 'out' | 'err', line: string, fromChild = false): void {
+  private pushLog(
+    stream: "out" | "err",
+    line: string,
+    fromChild = false,
+  ): void {
     // Backend output can carry a token or a home directory (and with it the
     // user's name). It is quoted in failure messages, shown in the log tail and
     // forwarded to repair agents, so it is scrubbed once, here, at the source.
     line = scrubText(cleanProcessLine(line));
     if (!line) return;
-    if (stream === 'err') this.crashes.captureLine(line);
+    if (stream === "err") this.crashes.captureLine(line);
     this.log.push(line);
-    if (this.log.length > LOG_RING_LINES) this.log.splice(0, this.log.length - LOG_RING_LINES);
+    if (this.log.length > LOG_RING_LINES)
+      this.log.splice(0, this.log.length - LOG_RING_LINES);
     // Failure messages quote the backend, not this shell. `log` also carries
     // the supervisor's own "Reusing compatible Tauri runtime"/"spawning in …"
     // lines, so taking its tail would report a launch banner as the backend's
@@ -1365,32 +1558,39 @@ export class BackendSupervisor extends EventEmitter<{
       if (this.childLog.length > LOG_RING_LINES)
         this.childLog.splice(0, this.childLog.length - LOG_RING_LINES);
     }
-    (stream === 'err' ? console.error : console.log)(`[backend] ${line}`);
-    if (this.stage === 'installing') {
+    (stream === "err" ? console.error : console.log)(`[backend] ${line}`);
+    if (this.stage === "installing") {
       this.setupProgress.ingest(line);
       this.emitStatus();
     }
   }
 
-  private attachLineReader(readable: NodeJS.ReadableStream | null, stream: 'out' | 'err'): void {
+  private attachLineReader(
+    readable: NodeJS.ReadableStream | null,
+    stream: "out" | "err",
+  ): void {
     if (!readable) return;
-    let pending = '';
+    let pending = "";
     const flushPending = () => {
       if (pending.length > 0) this.pushLog(stream, pending, true);
-      pending = '';
+      pending = "";
     };
-    readable.setEncoding('utf8');
-    readable.on('data', (chunk: string) => {
+    readable.setEncoding("utf8");
+    readable.on("data", (chunk: string) => {
       pending += chunk;
       const lines = pending.split(/[\r\n]+/);
-      pending = lines.pop() ?? '';
-      for (const line of lines) if (line.length > 0) this.pushLog(stream, line, true);
+      pending = lines.pop() ?? "";
+      for (const line of lines)
+        if (line.length > 0) this.pushLog(stream, line, true);
     });
-    readable.on('end', flushPending);
-    readable.on('error', (error: unknown) => {
+    readable.on("end", flushPending);
+    readable.on("error", (error: unknown) => {
       flushPending();
       if (!isExpectedPipeClose(error)) {
-        this.pushLog('err', `Backend ${stream} stream failed: ${errorMessage(error)}`);
+        this.pushLog(
+          "err",
+          `Backend ${stream} stream failed: ${errorMessage(error)}`,
+        );
       }
     });
   }
@@ -1401,14 +1601,19 @@ export class BackendSupervisor extends EventEmitter<{
     const [command, ...args] = plan.argv;
     // A custom command bypasses the managed runtime; its own executable is the
     // only thing that can be repaired.
-    const runtimeOwned = !parseBackendCmdOverride(process.env.OMNIVOICE_BACKEND_CMD);
+    const runtimeOwned = !parseBackendCmdOverride(
+      process.env.OMNIVOICE_BACKEND_CMD,
+    );
     if (!command) {
-      this.setStage('failed', { message: 'Empty backend command' });
+      this.setStage("failed", { message: "Empty backend command" });
       return;
     }
-    console.log(`[backend] spawning in ${plan.cwd}: ${plan.argv.join(' ')}`);
+    console.log(`[backend] spawning in ${plan.cwd}: ${plan.argv.join(" ")}`);
     let child: ChildProcess;
-    const processOptions = managedBackendSpawnOptions(this.port, this.runtimeRegion);
+    const processOptions = managedBackendSpawnOptions(
+      this.port,
+      this.runtimeRegion,
+    );
     try {
       child = spawn(command, args, {
         cwd: plan.cwd,
@@ -1417,10 +1622,10 @@ export class BackendSupervisor extends EventEmitter<{
         stdio: processOptions.stdio,
         windowsHide: true,
         // POSIX: own process group so the whole tree can be signalled at once.
-        detached: process.platform !== 'win32',
+        detached: process.platform !== "win32",
       });
     } catch (err) {
-      this.setStage('failed', {
+      this.setStage("failed", {
         message: spawnFailureMessage(command, err, { runtimeOwned }),
       });
       return;
@@ -1431,33 +1636,34 @@ export class BackendSupervisor extends EventEmitter<{
       // Reading the parent side keeps the ownership channel live and lets
       // Node observe EOF only after the complete backend subtree releases it.
       const drain = child.stdio?.[processOptions.drainFd] as
-        | NodeJS.ReadableStream
-        | null
-        | undefined;
-      drain?.on('error', (error: unknown) => {
+        NodeJS.ReadableStream | null | undefined;
+      drain?.on("error", (error: unknown) => {
         if (!isExpectedPipeClose(error)) {
-          this.pushLog('err', `Backend drain stream failed: ${errorMessage(error)}`);
+          this.pushLog(
+            "err",
+            `Backend drain stream failed: ${errorMessage(error)}`,
+          );
         }
       });
       drain?.resume();
     }
     // EPIPE on a dying child must never take main down with it.
-    child.stdin?.on('error', () => {});
-    this.attachLineReader(child.stdout, 'out');
-    this.attachLineReader(child.stderr, 'err');
-    child.on('error', (err) => {
+    child.stdin?.on("error", () => {});
+    this.attachLineReader(child.stdout, "out");
+    this.attachLineReader(child.stderr, "err");
+    child.on("error", (err) => {
       if (gen !== this.generation) return;
       this.child = null;
-      this.setStage('failed', {
+      this.setStage("failed", {
         message: spawnFailureMessage(command, err, { runtimeOwned }),
       });
     });
-    child.on('exit', (code, signal) => {
+    child.on("exit", (code, signal) => {
       if (this.child === child) this.child = null;
       if (gen !== this.generation || this.shuttingDown) return;
       void this.recoverAfterChildExit(gen, code, signal);
     });
-    this.setStage('starting', { managed: true, message: undefined });
+    this.setStage("starting", { managed: true, message: undefined });
   }
 
   private async recoverAfterChildExit(
@@ -1468,14 +1674,14 @@ export class BackendSupervisor extends EventEmitter<{
     // A second VoiceStudio shell can deliberately replace this child between
     // process exit and its own listener becoming ready. Treat that handoff as
     // attachment, not a crash, and keep renderer requests paused meanwhile.
-    this.setStage('attaching', { managed: false, message: undefined });
+    this.setStage("attaching", { managed: false, message: undefined });
     const deadline = Date.now() + REPLACEMENT_ATTACH_GRACE_MS;
     while (gen === this.generation && !this.shuttingDown) {
       if (await this.probe()) {
         if (gen !== this.generation || this.shuttingDown) return;
         this.exitCode = undefined;
         this.exitSignal = undefined;
-        this.pushLog('out', 'Attached to the replacement VoiceStudio backend.');
+        this.pushLog("out", "Attached to the replacement VoiceStudio backend.");
         await this.markReady(gen, { managed: false, message: undefined }, true);
         return;
       }
@@ -1487,40 +1693,50 @@ export class BackendSupervisor extends EventEmitter<{
     // End every readiness/supervisor loop for the dead ownership generation
     // before publishing the terminal result.
     this.generation++;
-    const recorded = this.crashes.record(code, signal, Date.now() - this.startedAt, this.log);
+    const recorded = this.crashes.record(
+      code,
+      signal,
+      Date.now() - this.startedAt,
+      this.log,
+    );
     this.exitCode = code;
     this.exitSignal = signal;
     const bindFailure =
       code === EXIT_PORT_IN_USE
-        ? 'in_use'
-        : bindFailureFromLog(this.childLog.join('\n'));
-    if (bindFailure === 'in_use') {
-      this.setStage('port_in_use', {
+        ? "in_use"
+        : bindFailureFromLog(this.childLog.join("\n"));
+    if (bindFailure === "in_use") {
+      this.setStage("port_in_use", {
         message: `Port ${this.port} is already in use by another process. Stop it or set OMNIVOICE_PORT.`,
       });
       return;
     }
-    if (bindFailure === 'denied') {
-      this.setStage('port_in_use', {
+    if (bindFailure === "denied") {
+      this.setStage("port_in_use", {
         message:
           `Windows or another program refused access to port ${this.port}. It is often in a reserved ` +
           'port range (Hyper-V, WSL, Docker) - run "netsh interface ipv4 show excludedportrange protocol=tcp" ' +
-          'to check - or held exclusively. Set OMNIVOICE_PORT to a free port and restart.',
+          "to check - or held exclusively. Set OMNIVOICE_PORT to a free port and restart.",
       });
       return;
     }
     // A native fault's last line is whatever followed the dump: the stdlib
     // frame that started the process, an extension-module list or an access
     // log line. Name the fault and where it happened instead (#2382, #2187).
-    const lastLine = nativeFaultSummary(recorded?.logTail.join('\n') ?? '') || this.childLog.at(-1);
+    const lastLine =
+      nativeFaultSummary(recorded?.logTail.join("\n") ?? "") ||
+      this.childLog.at(-1);
     const why = signal ? `signal ${signal}` : `exit code ${code}`;
-    this.setStage('crashed', {
-      message: `Backend exited unexpectedly (${why}).${lastLine ? ` Last output: ${lastLine}` : ''}`,
+    this.setStage("crashed", {
+      message: `Backend exited unexpectedly (${why}).${lastLine ? ` Last output: ${lastLine}` : ""}`,
     });
   }
 
-  private async probe(baseUrl = this.baseUrl, identityOnly = false): Promise<boolean> {
-    this.lastProbeOutcome = 'ok';
+  private async probe(
+    baseUrl = this.baseUrl,
+    identityOnly = false,
+  ): Promise<boolean> {
+    this.lastProbeOutcome = "ok";
     try {
       // This runs for the entire desktop session. Use the canonical, tiny
       // liveness response instead of repeatedly serializing full hardware,
@@ -1528,7 +1744,7 @@ export class BackendSupervisor extends EventEmitter<{
       const res = await fetch(`${baseUrl}/health`, {
         headers: this.requestHeaders(),
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-        redirect: this.remoteUrl ? 'follow' : 'error',
+        redirect: this.remoteUrl ? "follow" : "error",
       });
       // Every local backend this shell can spawn or attach to stamps the
       // marker on every response (BackendMarkerMiddleware, #1385). A generic
@@ -1536,39 +1752,45 @@ export class BackendSupervisor extends EventEmitter<{
       // redirect renderer content to another service; an unmarked listener
       // is left alone and the launch reports the port as in use instead.
       // Remote backends were chosen explicitly and may predate the marker.
-      const marked = Boolean(res.headers.get('x-omnivoice-backend'));
+      const marked = Boolean(res.headers.get("x-omnivoice-backend"));
       if (identityOnly) return marked;
       if (!this.remoteUrl && !marked) {
-        this.lastProbeOutcome = 'refused';
+        this.lastProbeOutcome = "refused";
         return false;
       }
       if (!res.ok) {
-        this.lastProbeOutcome = 'rejected';
+        this.lastProbeOutcome = "rejected";
         return false;
       }
       const body: unknown = await res.json();
       const healthy =
-        typeof body === 'object' &&
+        typeof body === "object" &&
         body !== null &&
-        (body as { status?: unknown }).status === 'ok' &&
-        typeof (body as { version?: unknown }).version === 'string';
-      if (!healthy) this.lastProbeOutcome = 'rejected';
+        (body as { status?: unknown }).status === "ok" &&
+        typeof (body as { version?: unknown }).version === "string";
+      if (!healthy) this.lastProbeOutcome = "rejected";
       return healthy;
     } catch (error) {
       const name = (error as { name?: unknown } | null)?.name;
       this.lastProbeOutcome =
-        name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'refused';
+        name === "TimeoutError" || name === "AbortError"
+          ? "timeout"
+          : "refused";
       return false;
     }
   }
 
   /** Keep probing a configured remote that was unreachable; resume supervision when it answers. */
   private async recoverWhenRemoteReturns(gen: number): Promise<void> {
-    while (gen === this.generation && this.stage === 'failed' && this.remoteUrl) {
+    while (
+      gen === this.generation &&
+      this.stage === "failed" &&
+      this.remoteUrl
+    ) {
       await delay(SUPERVISE_POLL_MS);
-      if (gen !== this.generation || this.stage !== 'failed') return;
+      if (gen !== this.generation || this.stage !== "failed") return;
       if (await this.probe()) {
-        if (gen !== this.generation || this.stage !== 'failed') return;
+        if (gen !== this.generation || this.stage !== "failed") return;
         await this.markReady(gen, { message: undefined }, true);
         return;
       }
@@ -1583,18 +1805,22 @@ export class BackendSupervisor extends EventEmitter<{
    * because a timeout or a 5xx proves nothing about the session: only a 2xx is
    * `valid` and only 401/403 is `rejected`.
    */
-  private async remoteCredentials(): Promise<'valid' | 'rejected' | 'inconclusive'> {
-    if (!this.remoteUrl) return 'valid';
+  private async remoteCredentials(): Promise<
+    "valid" | "rejected" | "inconclusive"
+  > {
+    if (!this.remoteUrl) return "valid";
     try {
       const res = await fetch(`${this.baseUrl}/system/info`, {
         headers: this.requestHeaders(),
         signal: AbortSignal.timeout(REMOTE_AUTH_CHECK_TIMEOUT_MS),
-        redirect: 'follow',
+        redirect: "follow",
       });
-      if (res.ok) return 'valid';
-      return res.status === 401 || res.status === 403 ? 'rejected' : 'inconclusive';
+      if (res.ok) return "valid";
+      return res.status === 401 || res.status === 403
+        ? "rejected"
+        : "inconclusive";
     } catch {
-      return 'inconclusive';
+      return "inconclusive";
     }
   }
 
@@ -1620,25 +1846,25 @@ export class BackendSupervisor extends EventEmitter<{
   ): Promise<boolean> {
     const credentials = await this.remoteCredentials();
     if (gen !== this.generation) return false;
-    if (credentials === 'valid') {
-      this.setStage('ready', patch);
-    } else if (credentials === 'rejected') {
-      if (this.diagnosis !== 'auth_required' || this.stage !== 'failed') {
-        this.setStage('failed', {
+    if (credentials === "valid") {
+      this.setStage("ready", patch);
+    } else if (credentials === "rejected") {
+      if (this.diagnosis !== "auth_required" || this.stage !== "failed") {
+        this.setStage("failed", {
           managed: false,
           message: `The remote backend at ${this.baseUrl} no longer accepts this app's credentials (its admin session expired or the key changed). Reconnect it with the API key.`,
-          diagnosis: 'auth_required',
+          diagnosis: "auth_required",
         });
       }
-    } else if (this.stage !== 'failed' && this.stage !== 'unresponsive') {
-      this.setStage('unresponsive', {
+    } else if (this.stage !== "failed" && this.stage !== "unresponsive") {
+      this.setStage("unresponsive", {
         managed: false,
         message: `Cannot confirm that the remote backend at ${this.baseUrl} accepts this app's credentials: its authenticated check did not complete. Retrying automatically.`,
-        diagnosis: 'remote_unreachable',
+        diagnosis: "remote_unreachable",
       });
     }
     if (superviseAfter) this.supervise(gen);
-    return credentials === 'valid';
+    return credentials === "valid";
   }
 
   /** Poll /health until ready, retiring the launch when the budget expires. */
@@ -1665,10 +1891,16 @@ export class BackendSupervisor extends EventEmitter<{
         await this.markReady(gen, { message: undefined }, true);
         return;
       }
-      if (gen !== this.generation || (this.stage !== 'starting' && this.stage !== 'attaching')) {
+      if (
+        gen !== this.generation ||
+        (this.stage !== "starting" && this.stage !== "attaching")
+      ) {
         return;
       }
-      if (Date.now() > readinessDeadline(pollStartedAt, budgetMs, this.lastChildOutputAt)) {
+      if (
+        Date.now() >
+        readinessDeadline(pollStartedAt, budgetMs, this.lastChildOutputAt)
+      ) {
         this.generation++;
         // killChild() nulls this.child, so record whether this launch owned a
         // process *before* tearing it down. Checking afterwards would
@@ -1680,8 +1912,11 @@ export class BackendSupervisor extends EventEmitter<{
         // output, which must not replace the startup line the report needs.
         const lastOutput = owned ? this.childLog.at(-1) : undefined;
         await this.killChild();
-        this.setStage('failed', {
-          message: startupTimeoutMessage(this.port, budgetMs, { owned, lastOutput }),
+        this.setStage("failed", {
+          message: startupTimeoutMessage(this.port, budgetMs, {
+            owned,
+            lastOutput,
+          }),
         });
         return;
       }
@@ -1701,8 +1936,8 @@ export class BackendSupervisor extends EventEmitter<{
     // Healthy ticks since an auth_required remote was last re-validated.
     let authRecheck = 0;
     const noteMiss = (): number => {
-      refusals = this.lastProbeOutcome === 'refused' ? refusals + 1 : 0;
-      rejections = this.lastProbeOutcome === 'rejected' ? rejections + 1 : 0;
+      refusals = this.lastProbeOutcome === "refused" ? refusals + 1 : 0;
+      rejections = this.lastProbeOutcome === "rejected" ? rejections + 1 : 0;
       return ++misses;
     };
     const release = (): void => {
@@ -1723,7 +1958,10 @@ export class BackendSupervisor extends EventEmitter<{
           // healthy tick: the rejection will repeat until credentials change
           // (possibly outside this app), so checking each tick is wasted load,
           // but never checking would leave it failed after they are fixed.
-          if (this.diagnosis !== 'auth_required' || ++authRecheck >= AUTH_RECHECK_TICKS) {
+          if (
+            this.diagnosis !== "auth_required" ||
+            ++authRecheck >= AUTH_RECHECK_TICKS
+          ) {
             authRecheck = 0;
             await this.markReady(gen, { message: undefined }, false);
           }
@@ -1732,7 +1970,7 @@ export class BackendSupervisor extends EventEmitter<{
         // The child-exit handler owns this bounded replacement handoff. It
         // will either attach or invalidate the generation before reporting a
         // crash, so this concurrent health loop must not race it.
-        if (this.stage === 'attaching') {
+        if (this.stage === "attaching") {
           if (gen === this.generation) void tick();
           return;
         }
@@ -1741,10 +1979,10 @@ export class BackendSupervisor extends EventEmitter<{
         // forever. `failed` is recoverable: the next healthy probe clears it,
         // and nothing is killed or respawned here.
         if (rejections >= SUPERVISE_REJECTIONS) {
-          if (this.stage !== 'failed') {
-            this.setStage('failed', {
+          if (this.stage !== "failed") {
+            this.setStage("failed", {
               message: `The backend at ${this.baseUrl} answers /health but reports that it is not healthy.`,
-              diagnosis: 'unhealthy',
+              diagnosis: "unhealthy",
             });
           }
           if (gen === this.generation) void tick();
@@ -1753,7 +1991,7 @@ export class BackendSupervisor extends EventEmitter<{
         // An answered-but-unhealthy probe is neither a stall nor a death, so it
         // must not announce "busy" or fall through to the crash path below
         // while the count above is still building.
-        if (this.lastProbeOutcome === 'rejected') {
+        if (this.lastProbeOutcome === "rejected") {
           if (gen === this.generation) void tick();
           return;
         }
@@ -1766,9 +2004,13 @@ export class BackendSupervisor extends EventEmitter<{
         // tears the workspace down behind an error gate, pauses every query
         // and dead-ends in-flight requests, all for a stall that the very next
         // probe clears. Announced once, then left to recover on its own.
-        if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
-          if (this.stage !== 'unresponsive') {
-            this.setStage('unresponsive', {
+        if (
+          this.child &&
+          this.child.exitCode === null &&
+          this.child.signalCode === null
+        ) {
+          if (this.stage !== "unresponsive") {
+            this.setStage("unresponsive", {
               message: `Backend is running but busy on port ${this.port}; it is not answering health checks right now. This resolves on its own once the current job finishes.`,
             });
           }
@@ -1783,14 +2025,14 @@ export class BackendSupervisor extends EventEmitter<{
         // from the status bar. Only consecutive refusals (the listener is
         // gone) declare it crashed.
         if (!this.managed && refusals < SUPERVISE_MISSES) {
-          if (this.stage !== 'unresponsive') {
-            this.setStage('unresponsive', {
+          if (this.stage !== "unresponsive") {
+            this.setStage("unresponsive", {
               message: this.remoteUrl
                 ? `Cannot confirm connectivity to the remote backend at ${this.baseUrl}: its health checks are timing out (a network problem, or the server is busy). Retrying automatically.`
                 : `The external backend at ${this.baseUrl} is running but busy; it is not answering health checks right now. This resolves on its own once the current job finishes.`,
               // English above is for logs and bug reports; the renderer shows
               // the localized catalog string for this code.
-              diagnosis: this.remoteUrl ? 'remote_unreachable' : undefined,
+              diagnosis: this.remoteUrl ? "remote_unreachable" : undefined,
             });
           }
           if (gen === this.generation) void tick();
@@ -1800,7 +2042,7 @@ export class BackendSupervisor extends EventEmitter<{
         release();
         const wasManaged = this.managed;
         await this.killChild();
-        this.setStage('crashed', {
+        this.setStage("crashed", {
           message: wasManaged
             ? `Backend stopped answering /health on port ${this.port}.`
             : `The external backend at ${this.baseUrl} stopped answering.`,
@@ -1817,7 +2059,7 @@ export class BackendSupervisor extends EventEmitter<{
     if (!this.managed || this.remoteUrl) return;
     try {
       await fetch(`${this.baseUrl}/system/shutdown-intent`, {
-        method: 'POST',
+        method: "POST",
         headers: this.requestHeaders(),
         signal: AbortSignal.timeout(SHUTDOWN_INTENT_TIMEOUT_MS),
       });
@@ -1834,26 +2076,26 @@ export class BackendSupervisor extends EventEmitter<{
     }
     const pid = child.pid;
     const exited = new Promise<void>((r) => {
-      child.once('exit', () => r());
+      child.once("exit", () => r());
     });
     if (deliberate) await this.prepareDeliberateShutdown();
-    if (process.platform === 'win32') {
-      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
         windowsHide: true,
       });
     } else {
       try {
-        process.kill(-pid, 'SIGTERM');
+        process.kill(-pid, "SIGTERM");
       } catch {
         /* group already gone */
       }
       const result = await Promise.race([
-        exited.then(() => 'exited'),
+        exited.then(() => "exited"),
         delay(POSIX_SIGKILL_AFTER_MS),
       ]);
-      if (result !== 'exited') {
+      if (result !== "exited") {
         try {
-          process.kill(-pid, 'SIGKILL');
+          process.kill(-pid, "SIGKILL");
         } catch {
           /* group already gone */
         }
