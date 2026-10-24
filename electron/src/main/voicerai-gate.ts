@@ -40,11 +40,13 @@ export function codeFromDeepLink(raw: string): string | null {
   try {
     const url = new URL(raw);
     if (url.protocol !== `${DEEP_LINK_SCHEME}:`) return null;
-    // voicerai://auth?code=x parses as host "auth"; voicerai:///?code=x as "".
+    // `voicerai://auth?code=x` parses as host "auth"; the bare `voicerai:///?code=x`
+    // form has an empty route, which still means "the sign-in hand-off". Only a
+    // named route other than auth is a miss.
     const route = (
       url.hostname || url.pathname.replace(/^\/+/, "")
     ).toLowerCase();
-    if (route !== "auth") return null;
+    if (route && route !== "auth") return null;
     const code = url.searchParams.get("code");
     return code && code.trim() ? code.trim() : null;
   } catch {
