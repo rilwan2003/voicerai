@@ -27,11 +27,69 @@ let emit: (state: AccountState) => void = () => {};
 /** Sign-in waits on the user's browser, so give it a generous window. */
 const SIGN_IN_TIMEOUT_MS = 10 * 60 * 1000;
 
-let pending: {
+interface Waiter {
   resolve: (state: AccountState) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-} | null = null;
+}
+
+/**
+ * Sign-in is driven by the browser, so this process only waits for a deep link
+ * to come back. A list rather than a single slot: a retry, or a click on the
+ * button while the previous attempt is still open, joins the same wait instead
+ * of being refused.
+ */
+let waiters: Waiter[] = [];
+let signInTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * True from the click until the hand-off comes back (or times out). Kept apart
+ * from the waiter list because the list empties once it has been settled, while
+ * the browser tab may still be open: a click in that window joins the attempt
+ * that is still running instead of opening a second tab.
+ */
+let attemptOpen = false;
+
+/** Deep links that arrive before the gate is registered (very early launch). */
+const queuedLinks: string[] = [];
+
+function settleWaiters(settle: (waiter: Waiter) => void): void {
+  if (signInTimer) clearTimeout(signInTimer);
+  signInTimer = null;
+  attemptOpen = false;
+  const current = waiters;
+  waiters = [];
+  for (const waiter of current) settle(waiter);
+}
+
+/** Add a caller to the current attempt and (re)arm its clock. */
+function joinAttempt(): Promise<AccountState> {
+  const promise = new Promise<AccountState>((resolve, reject) => {
+    waiters.push({ resolve, reject });
+  });
+  if (signInTimer) clearTimeout(signInTimer);
+  signInTimer = setTimeout(onSignInTimeout, SIGN_IN_TIMEOUT_MS);
+  return promise;
+}
+
+function onSignInTimeout(): void {
+  settleWaiters((waiter) =>
+    waiter.reject(
+      new Error(
+        "The sign-in window timed out. Click Sign in again to open a fresh one.",
+      ),
+    ),
+  );
+}
+
+/** True while a sign-in is waiting on the browser (surfaced for diagnostics). */
+export function signInPending(): boolean {
+  return attemptOpen;
+}
+
+/** Drop any in-flight attempt. Used by tests and by a forced sign-out. */
+export function resetSignInAttempt(message = "Sign-in cancelled."): void {
+  settleWaiters((waiter) => waiter.reject(new Error(message)));
+  queuedLinks.length = 0;
+}
 
 export const CLAIM_PATH = "/desktop-auth";
 
@@ -72,30 +130,29 @@ export function registerAccountGate(
   });
 
   ipcMain.handle("voicerai:signOut", async () => {
+    // Abandon any sign-in that is still waiting, so it cannot unlock the app
+    // behind the user's back after they have signed out.
+    resetSignInAttempt();
     const state = store.clear();
     emit(state);
     return state;
   });
 
   ipcMain.handle("voicerai:signIn", async () => {
-    if (pending) {
-      // A dialog is already open; reuse the wait rather than opening two tabs.
-      throw new Error("A sign-in window is already open in your browser.");
-    }
-    const waiting = new Promise<AccountState>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending = null;
-        reject(new Error("Sign-in timed out. Try again from the app."));
-      }, SIGN_IN_TIMEOUT_MS);
-      pending = { resolve, reject, timer };
-    });
-    try {
-      await openSignInPage();
-    } catch (error) {
-      const active = pending as { timer: ReturnType<typeof setTimeout> } | null;
-      if (active) clearTimeout(active.timer);
-      pending = null;
-      throw error;
+    // Opening a second tab would not help, but refusing outright would strand
+    // the user behind an attempt they abandoned. Reuse the wait that is already
+    // running: whichever sign-in completes answers every caller in it.
+    const joining = attemptOpen;
+    attemptOpen = true;
+    const waiting = joinAttempt();
+    // Only the first caller opens the browser; the rest join the wait.
+    if (!joining) {
+      try {
+        await openSignInPage();
+      } catch (error) {
+        settleWaiters((waiter) => waiter.reject(error as Error));
+        throw error;
+      }
     }
     return waiting;
   });
@@ -110,11 +167,17 @@ export function registerAccountGate(
     },
   );
 
+  if (registered) return;
+  registered = true;
+
   // Second launch while the app is open: the OS passes the deep link in argv.
+  // Registered once, here, and NOT alongside the other second-instance listener
+  // in main: a second listener for the same event would handle every hand-off
+  // twice, burning the single-use code on the first handler and failing the
+  // second, so the app reported a failed sign-in that had actually succeeded.
   app.on("second-instance", (_event, argv) => {
-    for (const arg of argv) {
-      if (arg.startsWith(`${DEEP_LINK_SCHEME}://`)) void handleDeepLink(arg);
-    }
+    const link = deepLinkFromArgv(argv);
+    if (link) void handleDeepLink(link);
   });
 
   // macOS delivers URLs to the running app through open-url.
@@ -127,6 +190,22 @@ export function registerAccountGate(
   if (process.platform === "darwin") {
     app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
   }
+
+  // Any link that arrived before this point is handled now, in order.
+  for (const link of queuedLinks.splice(0)) void handleDeepLink(link);
+}
+
+/**
+ * A deep link from the launch argv (Windows/Linux) or from a very early
+ * second-instance event. Queued until the gate is ready to use the store.
+ */
+export function deliverDeepLink(link: string | null): void {
+  if (!link) return;
+  if (!registered) {
+    queuedLinks.push(link);
+    return;
+  }
+  void handleDeepLink(link);
 }
 
 /** Pick a deep link out of the launch argv and handle it once ready. */
@@ -143,11 +222,7 @@ export async function handleDeepLink(
   try {
     const session = await exchangeCode(code);
     const state = store.set(session);
-    if (pending) {
-      clearTimeout(pending.timer);
-      pending.resolve(state);
-      pending = null;
-    }
+    settleWaiters((waiter) => waiter.resolve(state));
     emit(state);
     const win = BrowserWindowRef();
     if (win && win.isMinimized()) win.restore();
@@ -158,11 +233,7 @@ export async function handleDeepLink(
       error instanceof Error
         ? error.message
         : "Could not complete the ThinkFlyFlow sign-in";
-    if (pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error(message));
-      pending = null;
-    }
+    settleWaiters((waiter) => waiter.reject(new Error(message)));
     emit(store.state(message));
     return null;
   }
@@ -173,5 +244,6 @@ function BrowserWindowRef(): BrowserWindow | null {
 }
 
 let getWindowRef: (() => BrowserWindow | null) | null = null;
+let registered = false;
 
 export { signInUrl };

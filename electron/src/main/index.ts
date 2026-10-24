@@ -1,56 +1,65 @@
-import { createTrayIcon } from './tray-icon';
-import { installWatchFolders } from './watch-folders';
-import { installNativeCapture } from './native-capture';
-import { isTrustedRenderer } from './trusted-renderer';
-import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
-import { electronApp, is, optimizer } from '@electron-toolkit/utils';
-import { BackendSupervisor, backendRoot } from './backend';
-import { registerIpc, wireWindowMaximizeEvents } from './ipc';
-import { APP_ORIGIN, installAppProtocol, registerAppScheme } from './protocol';
-import { electronProxyPort, startDevBackendProxy } from './dev-backend-proxy';
-import { DesktopUpdater, registerUpdateIpc } from './updater';
-import { registerRepairAgents } from './repair-agents';
-import { installRendererPermissions } from './media-permissions';
-import { installBlankWindowGuard } from './blank-window-guard';
-import { shouldOpenDevTools } from './devtools-policy';
+import { createTrayIcon } from "./tray-icon";
+import { installWatchFolders } from "./watch-folders";
+import { installNativeCapture } from "./native-capture";
+import { isTrustedRenderer } from "./trusted-renderer";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  session,
+  shell,
+  Tray,
+} from "electron";
+import { electronApp, is, optimizer } from "@electron-toolkit/utils";
+import { BackendSupervisor, backendRoot } from "./backend";
+import { registerIpc, wireWindowMaximizeEvents } from "./ipc";
+import { APP_ORIGIN, installAppProtocol, registerAppScheme } from "./protocol";
+import { electronProxyPort, startDevBackendProxy } from "./dev-backend-proxy";
+import { DesktopUpdater, registerUpdateIpc } from "./updater";
+import { registerRepairAgents } from "./repair-agents";
+import { installRendererPermissions } from "./media-permissions";
+import { installBlankWindowGuard } from "./blank-window-guard";
+import { shouldOpenDevTools } from "./devtools-policy";
 import {
   installMainProcessErrorHandlers,
   MainErrorJournal,
   observeMainProcessTask,
-} from './main-error-journal';
-import { activateLiveWindow, isLiveWindow } from './window-safety';
-import { startAccount } from './account';
-import { installAppIdentity, installMacApplicationMenu } from './app-identity';
+} from "./main-error-journal";
+import { activateLiveWindow, isLiveWindow } from "./window-safety";
+import { startAccount } from "./account";
+import { installAppIdentity, installMacApplicationMenu } from "./app-identity";
 import {
   deepLinkFromArgv,
-  handleDeepLink,
+  deliverDeepLink,
   registerAccountGate,
-} from './voicerai-gate';
-import { APP_ID, PRODUCT_NAME } from '../../../config/app-config.mjs';
+} from "./voicerai-gate";
+import { APP_ID, PRODUCT_NAME } from "../../../config/app-config.mjs";
 
 // Packaged GUI launches can inherit a short-lived terminal pipe. When that
 // launcher exits, diagnostic console writes emit EPIPE asynchronously and can
 // otherwise take down the healthy Electron main process. In-app log rings keep
 // the same backend events, so a closed stdout/stderr sink is safe to ignore.
-process.stdout?.on('error', () => {});
-process.stderr?.on('error', () => {});
+process.stdout?.on("error", () => {});
+process.stderr?.on("error", () => {});
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PRELOAD_PATH = join(here, '../preload/index.mjs');
-const RENDERER_DIR = join(here, '../renderer');
+const PRELOAD_PATH = join(here, "../preload/index.mjs");
+const RENDERER_DIR = join(here, "../renderer");
 
 // Neutral startup surface; transparent caption controls follow the CSS title bar.
-const BACKGROUND = '#0a0a0a';
-const OVERLAY = { color: '#00000000', symbolColor: '#737373', height: 52 };
+const BACKGROUND = "#0a0a0a";
+const OVERLAY = { color: "#00000000", symbolColor: "#737373", height: 52 };
 
 installAppIdentity(app);
 registerAppScheme();
 
 const mainErrors = new MainErrorJournal(
-  join(app.getPath('userData'), 'main-process-errors.json'),
+  join(app.getPath("userData"), "main-process-errors.json"),
   app.getVersion(),
 );
 installMainProcessErrorHandlers(mainErrors);
@@ -67,8 +76,8 @@ let closeRepairAgents: (() => void) | null = null;
 let closeAccount: (() => void) | null = null;
 let quitPreparation: Promise<void> | null = null;
 
-const PERSISTENCE_FLUSH_REQUEST = 'app:flush-persistence';
-const PERSISTENCE_FLUSHED = 'app:persistence-flushed';
+const PERSISTENCE_FLUSH_REQUEST = "app:flush-persistence";
+const PERSISTENCE_FLUSHED = "app:persistence-flushed";
 
 async function flushRendererPersistence(): Promise<void> {
   const owner = mainWindow;
@@ -111,7 +120,10 @@ async function tearDownNativeResources(): Promise<void> {
   tray = null;
   const proxyTeardown = closeDevProxy?.() ?? Promise.resolve();
   closeDevProxy = null;
-  await Promise.allSettled([supervisor?.shutdown() ?? Promise.resolve(), proxyTeardown]);
+  await Promise.allSettled([
+    supervisor?.shutdown() ?? Promise.resolve(),
+    proxyTeardown,
+  ]);
 }
 
 function beginOrderlyQuit(flushPersistence = true): Promise<void> {
@@ -129,11 +141,15 @@ function beginOrderlyQuit(flushPersistence = true): Promise<void> {
 
 function brandIconPath(file: string): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'brand', file)
-    : join(backendRoot(), 'electron', 'build', 'icons', file);
+    ? join(process.resourcesPath, "brand", file)
+    : join(backendRoot(), "electron", "build", "icons", file);
 }
 
-ipcMain.handle('app:is-fullscreen', (event) => BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false);
+ipcMain.handle(
+  "app:is-fullscreen",
+  (event) =>
+    BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false,
+);
 
 function createWindow(): BrowserWindow {
   const appUrl =
@@ -141,15 +157,15 @@ function createWindow(): BrowserWindow {
       ? process.env.ELECTRON_RENDERER_URL
       : `${APP_ORIGIN}/index.html`;
   const win = new BrowserWindow({
-    icon: brandIconPath(process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: brandIconPath(process.platform === "win32" ? "icon.ico" : "icon.png"),
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 640,
     show: false,
     backgroundColor: BACKGROUND,
-    titleBarStyle: 'hidden',
-    ...(process.platform === 'darwin'
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
       ? { trafficLightPosition: { x: 12, y: 10 } }
       : { titleBarOverlay: OVERLAY }),
     webPreferences: {
@@ -161,27 +177,31 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.on('enter-full-screen', () => win.webContents.send('app:fullscreen', true));
-  win.on('leave-full-screen', () => win.webContents.send('app:fullscreen', false));
-  win.on('ready-to-show', () => activateLiveWindow(win));
-  win.on('close', (event) => {
+  win.on("enter-full-screen", () =>
+    win.webContents.send("app:fullscreen", true),
+  );
+  win.on("leave-full-screen", () =>
+    win.webContents.send("app:fullscreen", false),
+  );
+  win.on("ready-to-show", () => activateLiveWindow(win));
+  win.on("close", (event) => {
     if (quitting) return;
     event.preventDefault();
-    if (process.platform === 'darwin') {
+    if (process.platform === "darwin") {
       observeMainProcessTask(
         flushRendererPersistence().finally(() => {
           if (!win.isDestroyed()) win.destroy();
         }),
         mainErrors,
-        'Window persistence flush',
+        "Window persistence flush",
       );
       return;
     }
-    observeMainProcessTask(beginOrderlyQuit(), mainErrors, 'Orderly quit');
+    observeMainProcessTask(beginOrderlyQuit(), mainErrors, "Orderly quit");
   });
-  win.on('closed', () => {
+  win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
-    if (process.platform !== 'darwin' && !quitting) app.quit();
+    if (process.platform !== "darwin" && !quitting) app.quit();
   });
   wireWindowMaximizeEvents(win);
   installBlankWindowGuard(
@@ -199,9 +219,9 @@ function createWindow(): BrowserWindow {
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     void openOutside(url);
-    return { action: 'deny' };
+    return { action: "deny" };
   });
-  win.webContents.on('will-navigate', (event, url) => {
+  win.webContents.on("will-navigate", (event, url) => {
     if (isOwnUrl(url)) return;
     event.preventDefault();
     void openOutside(url);
@@ -211,7 +231,7 @@ function createWindow(): BrowserWindow {
     // The blank-window guard owns bounded renderer recovery; consume the load
     // promise so a transient dev-server/package read failure is not uncaught.
     void win.loadURL(appUrl).catch(() => {});
-    if (shouldOpenDevTools()) win.webContents.openDevTools({ mode: 'detach' });
+    if (shouldOpenDevTools()) win.webContents.openDevTools({ mode: "detach" });
   } else {
     void win.loadURL(appUrl).catch(() => {});
   }
@@ -227,9 +247,9 @@ async function openOutside(url: string): Promise<void> {
   try {
     const parsed = new URL(url);
     if (
-      parsed.protocol === 'http:' ||
-      parsed.protocol === 'https:' ||
-      parsed.protocol === 'mailto:'
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "mailto:"
     ) {
       await shell.openExternal(parsed.toString());
     }
@@ -238,13 +258,16 @@ async function openOutside(url: string): Promise<void> {
   }
 }
 
-if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSingleInstanceLock()) {
+if (
+  process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== "1" &&
+  !app.requestSingleInstanceLock()
+) {
   app.quit();
 } else {
-  app.on('second-instance', (_event, argv) => {
-    // A ThinkFlyFlow sign-in hands control back through this deep link.
-    const link = deepLinkFromArgv(argv);
-    if (link) void handleDeepLink(link);
+  app.on("second-instance", (_event, argv) => {
+    // A ThinkFlyFlow sign-in hands control back through this deep link. The
+    // account gate owns that handling; this listener only restores the window.
+    deliverDeepLink(deepLinkFromArgv(argv));
     activateLiveWindow(mainWindow);
   });
 
@@ -252,16 +275,26 @@ if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSing
     .whenReady()
     .then(async () => {
       electronApp.setAppUserModelId(APP_ID);
-      if (process.platform === 'darwin') installMacApplicationMenu(app, Menu, __APP_VERSION__);
-      installRendererPermissions(session.defaultSession, process.env.ELECTRON_RENDERER_URL);
-      app.on('browser-window-created', (_event, window) => optimizer.watchWindowShortcuts(window));
+      if (process.platform === "darwin")
+        installMacApplicationMenu(app, Menu, __APP_VERSION__);
+      installRendererPermissions(
+        session.defaultSession,
+        process.env.ELECTRON_RENDERER_URL,
+      );
+      app.on("browser-window-created", (_event, window) =>
+        optimizer.watchWindowShortcuts(window),
+      );
 
       const backend = new BackendSupervisor();
       supervisor = backend;
-      console.log(`[supervisor] backend root: ${backendRoot()} (packaged=${app.isPackaged})`);
+      console.log(
+        `[supervisor] backend root: ${backendRoot()} (packaged=${app.isPackaged})`,
+      );
       backend.subscribe((s) => {
-        const detail = s.message ? ` — ${s.message}` : '';
-        console.log(`[supervisor] stage=${s.stage} managed=${s.managed} port=${s.port}${detail}`);
+        const detail = s.message ? ` — ${s.message}` : "";
+        console.log(
+          `[supervisor] stage=${s.stage} managed=${s.managed} port=${s.port}${detail}`,
+        );
       });
       installAppProtocol(
         () => backend.baseUrl,
@@ -284,7 +317,7 @@ if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSing
         notifyBackend: async (path) => {
           if (backend.connection.remote) return;
           await fetch(`${backend.baseUrl}${path}`, {
-            method: 'POST',
+            method: "POST",
             headers: backend.requestHeaders(),
             signal: AbortSignal.timeout(5000),
           });
@@ -318,11 +351,21 @@ if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSing
         },
       );
       const startupUpdateCheck = setTimeout(
-        () => observeMainProcessTask(updater.check(true), mainErrors, 'Startup update check'),
+        () =>
+          observeMainProcessTask(
+            updater.check(true),
+            mainErrors,
+            "Startup update check",
+          ),
         10_000,
       );
       const periodicUpdateCheck = setInterval(
-        () => observeMainProcessTask(updater.check(true), mainErrors, 'Periodic update check'),
+        () =>
+          observeMainProcessTask(
+            updater.check(true),
+            mainErrors,
+            "Periodic update check",
+          ),
         6 * 60 * 60 * 1_000,
       );
       closeUpdates = () => {
@@ -334,45 +377,44 @@ if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSing
       registerAccountGate(() => mainWindow);
       // A cold start from a voicerai:// link carries it in the launch argv
       // (Windows and Linux); macOS delivers it through open-url in the gate.
-      const launchLink = deepLinkFromArgv(process.argv);
-      if (launchLink) void handleDeepLink(launchLink);
+      deliverDeepLink(deepLinkFromArgv(process.argv));
       closeWatch = installWatchFolders(
         () => mainWindow,
         () => backend.baseUrl,
         () => backend.requestHeaders(),
       );
-      const icon = nativeImage.createFromPath(brandIconPath('icon.png'));
-      if (process.platform === 'darwin') app.dock?.setIcon(icon);
-      tray = new Tray(createTrayIcon(brandIconPath('32x32.png')));
+      const icon = nativeImage.createFromPath(brandIconPath("icon.png"));
+      if (process.platform === "darwin") app.dock?.setIcon(icon);
+      tray = new Tray(createTrayIcon(brandIconPath("32x32.png")));
       tray.setToolTip(PRODUCT_NAME);
       closeCapture = installNativeCapture(PRELOAD_PATH, tray, () => mainWindow);
-      tray.on('click', () => {
+      tray.on("click", () => {
         if (!isLiveWindow(mainWindow)) mainWindow = createWindow();
         activateLiveWindow(mainWindow);
       });
-      observeMainProcessTask(backend.start(), mainErrors, 'Backend startup');
+      observeMainProcessTask(backend.start(), mainErrors, "Backend startup");
 
-      app.on('activate', () => {
+      app.on("activate", () => {
         if (!isLiveWindow(mainWindow)) mainWindow = createWindow();
       });
     })
     .catch((error) => {
       // Keep initialization failures out of Node's unhandled-rejection path,
       // while retaining durable evidence for the next launch and repair agent.
-      mainErrors.record(error, 'unhandledRejection');
-      console.error('[startup] Electron initialization failed', error);
+      mainErrors.record(error, "unhandledRejection");
+      console.error("[startup] Electron initialization failed", error);
       app.exit(1);
     });
 
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
   });
 
   // The first pass gives renderer persistence a bounded chance to settle, then
   // tears native resources down. The second pass exits without re-entering.
-  app.on('before-quit', (event) => {
+  app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
-    observeMainProcessTask(beginOrderlyQuit(), mainErrors, 'Orderly quit');
+    observeMainProcessTask(beginOrderlyQuit(), mainErrors, "Orderly quit");
   });
 }

@@ -95,10 +95,13 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
       apply(next);
     } catch (cause) {
       setPhase("signedOut");
+      // The message comes from the main process and is written for the person
+      // reading it; the button stays available so a failed attempt is never a
+      // dead end.
       setError(
-        cause instanceof Error
+        cause instanceof Error && cause.message
           ? cause.message
-          : "Could not sign in to ThinkFlyFlow.",
+          : "Could not sign in to ThinkFlyFlow. Try again.",
       );
     }
   }, [apply]);
