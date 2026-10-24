@@ -330,6 +330,29 @@ export interface AccountPublicState {
   } | null;
 }
 
+export interface VoicerAIAccountProfile {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface VoicerAIAccountState {
+  signedIn: boolean;
+  profile: VoicerAIAccountProfile | null;
+  signedInAt: number | null;
+  message?: string;
+}
+
+export interface VoicerAIUploadResult {
+  ok: boolean;
+  fileId?: string;
+  name?: string;
+  size?: number;
+  error?: string;
+}
+
 export interface VoiceStudioBridge {
   /** VoiceStudio Cloud account; never carries a token. */
   account: {
@@ -343,6 +366,18 @@ export interface VoiceStudioBridge {
     }): Promise<AccountPublicState>;
     updateProfile(patch: { display_name?: string }): Promise<AccountPublicState>;
     onState(cb: (state: AccountPublicState) => void): () => void;
+  };
+  /**
+   * ThinkFlyFlow account gate. VoicerAI only unlocks for a signed-in
+   * ThinkFlyFlow user; the token never crosses into the renderer.
+   */
+  voicerai: {
+    state(): Promise<VoicerAIAccountState>;
+    signIn(): Promise<VoicerAIAccountState>;
+    signOut(): Promise<VoicerAIAccountState>;
+    refresh(): Promise<VoicerAIAccountState>;
+    upload(input: { name: string; data: ArrayBuffer }): Promise<VoicerAIUploadResult>;
+    onState(cb: (state: VoicerAIAccountState) => void): () => void;
   };
   browser: import('../shared/site-browser').SiteBrowserBridge;
   repair: {

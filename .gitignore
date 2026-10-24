@@ -188,3 +188,11 @@ backend/assets/samples/demo/dubbing/*.src.wav
 # handoff (canonical in vssaas) and Microsoft Store listing text drafts.
 /account_login/
 /store-*-en.txt
+
+# ─────────────────────────────────────────────────────────────────────────
+#  Electron build resources — electron/build holds the macOS Info.plist,
+#  entitlements and app icons that electron-builder reads at package time.
+#  The Python `build/` rule above must not swallow it.
+# ─────────────────────────────────────────────────────────────────────────
+!electron/build/
+!electron/build/**

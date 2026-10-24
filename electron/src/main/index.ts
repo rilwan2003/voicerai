@@ -24,6 +24,11 @@ import {
 import { activateLiveWindow, isLiveWindow } from './window-safety';
 import { startAccount } from './account';
 import { installAppIdentity, installMacApplicationMenu } from './app-identity';
+import {
+  deepLinkFromArgv,
+  handleDeepLink,
+  registerAccountGate,
+} from './voicerai-gate';
 import { APP_ID, PRODUCT_NAME } from '../../../config/app-config.mjs';
 
 // Packaged GUI launches can inherit a short-lived terminal pipe. When that
@@ -236,7 +241,10 @@ async function openOutside(url: string): Promise<void> {
 if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // A ThinkFlyFlow sign-in hands control back through this deep link.
+    const link = deepLinkFromArgv(argv);
+    if (link) void handleDeepLink(link);
     activateLiveWindow(mainWindow);
   });
 
@@ -323,6 +331,11 @@ if (process.env.VOICESTUDIO_ALLOW_MULTIPLE_INSTANCES !== '1' && !app.requestSing
         closeUpdateIpc();
       };
       mainWindow = createWindow();
+      registerAccountGate(() => mainWindow);
+      // A cold start from a voicerai:// link carries it in the launch argv
+      // (Windows and Linux); macOS delivers it through open-url in the gate.
+      const launchLink = deepLinkFromArgv(process.argv);
+      if (launchLink) void handleDeepLink(launchLink);
       closeWatch = installWatchFolders(
         () => mainWindow,
         () => backend.baseUrl,

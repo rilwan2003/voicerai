@@ -20,6 +20,14 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const bridge: VoiceStudioBridge = {
+  voicerai: {
+    state: () => ipcRenderer.invoke('voicerai:state'),
+    signIn: () => ipcRenderer.invoke('voicerai:signIn'),
+    signOut: () => ipcRenderer.invoke('voicerai:signOut'),
+    refresh: () => ipcRenderer.invoke('voicerai:refresh'),
+    upload: (input) => ipcRenderer.invoke('voicerai:upload', input),
+    onState: (cb) => subscribe('voicerai:state', cb),
+  },
   browser: {
     open: (url) => ipcRenderer.invoke('site-browser:open', url),
     close: () => ipcRenderer.invoke('site-browser:close'),
