@@ -16,8 +16,59 @@ import { dirname, join } from "node:path";
  * The renderer gets the signed-in profile, never the token itself.
  */
 
-export const WEB_ORIGIN = "https://thinkflyflow.laureljar.com";
-export const API_ORIGIN = "https://api.laureljar.com";
+/**
+ * Which ThinkFlyFlow deployment this build talks to.
+ *
+ * A packaged build is always pinned to production, whatever the environment
+ * says: a stray variable on a user's machine must never point the account gate
+ * somewhere else. An unpackaged (developer) run can point at staging by setting
+ * both `VOICERAI_ACCOUNT_ENV=staging` and `VOICERAI_ACCOUNT_ENV_ALLOW=1`, so the
+ * sign-in hand-off can be exercised end to end against the test environment
+ * before a production release exists.
+ */
+const PRODUCTION_ORIGINS = {
+  web: "https://thinkflyflow.laureljar.com",
+  api: "https://api.laureljar.com",
+} as const;
+
+const STAGING_ORIGINS = {
+  web: "https://thinkflyflow-test.laureljar.com",
+  api: "https://apitest.laureljar.com",
+} as const;
+
+let webOrigin: string = PRODUCTION_ORIGINS.web;
+let apiOrigin: string = PRODUCTION_ORIGINS.api;
+let apiBase = `${apiOrigin}/api/v2`;
+
+/**
+ * Resolve the deployment once the Electron app object can answer for itself
+ * (`isPackaged` is only reliable after the app module has loaded). Callers that
+ * run before `whenReady` simply keep the production defaults, which is exactly
+ * what a packaged build should use anyway.
+ *
+ * `VOICERAI_ACCOUNT_ENV` is ignored unless `VOICERAI_ACCOUNT_ENV_ALLOW` is also
+ * set. Electron ships any `VOICERAI_*` variable found in the environment, so a
+ * single forwarded variable must not be enough to point a released build at the
+ * test backend; a tester has to opt in to both.
+ */
+export function resolveAccountEnvironment(): void {
+  const requested =
+    process.env.VOICERAI_ACCOUNT_ENV?.trim().toLowerCase() === "staging";
+  const allowed = process.env.VOICERAI_ACCOUNT_ENV_ALLOW === "1";
+  const packaged = typeof app?.isPackaged === "boolean" ? app.isPackaged : true;
+  const origins = requested && allowed && !packaged ? STAGING_ORIGINS : PRODUCTION_ORIGINS;
+  webOrigin = origins.web;
+  apiOrigin = origins.api;
+  apiBase = `${apiOrigin}/api/v2`;
+}
+
+/** The resolved API base, for tests that assert which deployment is in use. */
+export function __apiBaseForTests(): string {
+  return apiBase;
+}
+
+export const WEB_ORIGIN = PRODUCTION_ORIGINS.web;
+export const API_ORIGIN = PRODUCTION_ORIGINS.api;
 export const API_BASE = `${API_ORIGIN}/api/v2`;
 export const DEEP_LINK_SCHEME = "voicerai";
 
@@ -73,7 +124,7 @@ async function requestJson<T>(
       ...(init.token ? authHeader(init.token) : {}),
       ...((init.headers as Record<string, string>) ?? {}),
     };
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${apiBase}${path}`, {
       ...init,
       headers,
       signal: controller.signal,
@@ -218,7 +269,7 @@ export async function exchangeCode(code: string): Promise<StoredSession> {
 }
 
 export function signInUrl(): string {
-  return `${WEB_ORIGIN}/desktop-auth?app=voicerai&redirect=${encodeURIComponent(`${DEEP_LINK_SCHEME}://auth`)}`;
+  return `${webOrigin}/desktop-auth?app=voicerai&redirect=${encodeURIComponent(`${DEEP_LINK_SCHEME}://auth`)}`;
 }
 
 export async function openSignInPage(): Promise<void> {

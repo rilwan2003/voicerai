@@ -36,6 +36,7 @@ import { installAppIdentity, installMacApplicationMenu } from "./app-identity";
 import {
   deepLinkFromArgv,
   deliverDeepLink,
+  queueDeepLink,
   registerAccountGate,
 } from "./voicerai-gate";
 import { APP_ID, PRODUCT_NAME } from "../../../config/app-config.mjs";
@@ -377,7 +378,9 @@ if (
       registerAccountGate(() => mainWindow);
       // A cold start from a voicerai:// link carries it in the launch argv
       // (Windows and Linux); macOS delivers it through open-url in the gate.
-      deliverDeepLink(deepLinkFromArgv(process.argv));
+      // Queued rather than delivered here: the gate owns the session state, and
+      // a hand-off handled before the gate is ready is a hand-off thrown away.
+      queueDeepLink(deepLinkFromArgv(process.argv));
       closeWatch = installWatchFolders(
         () => mainWindow,
         () => backend.baseUrl,

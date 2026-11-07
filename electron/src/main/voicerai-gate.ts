@@ -4,6 +4,7 @@ import {
   DEEP_LINK_SCHEME,
   exchangeCode,
   openSignInPage,
+  resolveAccountEnvironment,
   signInUrl,
   uploadFile,
   verifySession,
@@ -112,9 +113,26 @@ export function codeFromDeepLink(raw: string): string | null {
   }
 }
 
+/**
+ * Queue a deep link that arrived from the launch arguments.
+ *
+ * It has to wait for the gate: the signed-in state is created on first use, and
+ * the gate stores the session that a hand-off unlocks. Delivering it earlier (or
+ * reading that state earlier, just to make it eager) means an exchange that
+ * succeeds but is then thrown away, so a cold start from `voicerai://` would
+ * silently land on the sign-in screen again.
+ */
+export function queueDeepLink(link: string | null): void {
+  if (!link) return;
+  queuedLinks.push(link);
+}
+
 export function registerAccountGate(
   getWindow: () => BrowserWindow | null,
 ): void {
+  // `isPackaged` is only trustworthy now that the app has loaded, so the
+  // environment is resolved here rather than at module import time.
+  resolveAccountEnvironment();
   getWindowRef = getWindow;
   emit = (state) => {
     const win = getWindow();
@@ -167,7 +185,12 @@ export function registerAccountGate(
     },
   );
 
-  if (registered) return;
+  if (registered) {
+    // Still flush: a launch argument queued after registration must not be
+    // stranded by an early return.
+    for (const link of queuedLinks.splice(0)) void handleDeepLink(link);
+    return;
+  }
   registered = true;
 
   // Second launch while the app is open: the OS passes the deep link in argv.

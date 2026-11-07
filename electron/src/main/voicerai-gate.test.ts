@@ -32,9 +32,13 @@ vi.mock("./voicerai-account", () => ({
     state() {
       return { signedIn: false, profile: null, signedInAt: null };
     }
+    set(session: unknown) {
+      return { signedIn: true, profile: session, signedInAt: Date.now() };
+    }
   },
   DEEP_LINK_SCHEME: "voicerai",
   exchangeCode: vi.fn(),
+  resolveAccountEnvironment: vi.fn(),
   openSignInPage: () =>
     electron.shell.openExternal("https://example.test/desktop-auth"),
   signInUrl: () => "https://example.test/desktop-auth",
@@ -42,7 +46,13 @@ vi.mock("./voicerai-account", () => ({
   verifySession: vi.fn(),
 }));
 
-import { registerAccountGate, resetSignInAttempt } from "./voicerai-gate";
+import {
+  deliverDeepLink,
+  queueDeepLink,
+  registerAccountGate,
+  resetSignInAttempt,
+} from "./voicerai-gate";
+import { exchangeCode } from "./voicerai-account";
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const handlersByChannel = new Map<string, Handler>();
@@ -107,5 +117,53 @@ describe("registerAccountGate", () => {
     resetSignInAttempt();
     const outcomes = await Promise.allSettled([first, second]);
     expect(outcomes.map((o) => o.status)).toEqual(["rejected", "rejected"]);
+  });
+});
+
+describe("cold start from a voicerai:// link", () => {
+  it("keeps a launch-argument hand-off until the gate can take it", async () => {
+    // Regression: main used to deliver the argv deep link immediately, which
+    // created the account state before the gate registered. The exchange
+    // succeeded and the session was then thrown away, so a cold start from the
+    // sign-in link landed back on the "Sign in" screen.
+    vi.mocked(exchangeCode).mockClear();
+    vi.mocked(exchangeCode).mockResolvedValue({
+      token: "access",
+      refresh: "refresh",
+      profile: { id: 1, username: "a", email: "a@example.test", first_name: "", last_name: "" },
+      signedInAt: Date.now(),
+    });
+
+    queueDeepLink("voicerai://auth?code=cold-start-code");
+    expect(exchangeCode).not.toHaveBeenCalled();
+
+    registerAccountGate(() => null);
+
+    await vi.waitFor(() => {
+      expect(exchangeCode).toHaveBeenCalledWith("cold-start-code");
+    });
+  });
+
+  it("ignores a null launch argument", async () => {
+    vi.mocked(exchangeCode).mockClear();
+    queueDeepLink(null);
+    registerAccountGate(() => null);
+    await Promise.resolve();
+    expect(exchangeCode).not.toHaveBeenCalled();
+  });
+
+  it("still delivers a link handed over after registration", async () => {
+    vi.mocked(exchangeCode).mockClear();
+    vi.mocked(exchangeCode).mockResolvedValue({
+      token: "access",
+      refresh: "refresh",
+      profile: { id: 1, username: "a", email: "a@example.test", first_name: "", last_name: "" },
+      signedInAt: Date.now(),
+    });
+    registerAccountGate(() => null);
+    deliverDeepLink("voicerai://auth?code=warm-code");
+    await vi.waitFor(() => {
+      expect(exchangeCode).toHaveBeenCalledWith("warm-code");
+    });
   });
 });
