@@ -167,3 +167,28 @@ describe("cold start from a voicerai:// link", () => {
     });
   });
 });
+
+describe("a link arriving mid-sign-in (what a cold start on Linux looks like)", () => {
+  it("completes the wait that was already running instead of failing it", async () => {
+    // Regression found by running the packaged app: on Linux the browser's link
+    // launches a new process, and any link the running app receives "early"
+    // arrives after the user pressed Sign in but while the gate is still
+    // registered. It was queued forever, so the app stayed locked and the user
+    // saw "nothing happened" even though the code had been handed over.
+    vi.mocked(exchangeCode).mockClear();
+    vi.mocked(exchangeCode).mockResolvedValue({
+      token: "access",
+      refresh: "refresh",
+      profile: { id: 1, username: "a", email: "a@example.test", first_name: "", last_name: "" },
+      signedInAt: Date.now(),
+    });
+
+    const handlersRef = handlers();
+    const signIn = handlersRef.get("voicerai:signIn")!();
+    // The click opened the browser, and the browser's link shows up now.
+    deliverDeepLink("voicerai://auth?code=papercut-code");
+
+    await expect(signIn).resolves.toMatchObject({ signedIn: true });
+    expect(exchangeCode).toHaveBeenCalledWith("papercut-code");
+  });
+});

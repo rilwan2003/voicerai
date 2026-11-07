@@ -127,6 +127,20 @@ export function queueDeepLink(link: string | null): void {
   queuedLinks.push(link);
 }
 
+/**
+ * Hand every queued link to the store, in arrival order.
+ *
+ * Serialised: two hand-offs at once would race to consume single-use codes and
+ * the second would report a failure for a sign-in that actually succeeded.
+ */
+function drainQueuedLinks(): void {
+  const links = queuedLinks.splice(0);
+  if (!links.length) return;
+  void (async () => {
+    for (const link of links) await handleDeepLink(link);
+  })();
+}
+
 export function registerAccountGate(
   getWindow: () => BrowserWindow | null,
 ): void {
@@ -186,9 +200,9 @@ export function registerAccountGate(
   );
 
   if (registered) {
-    // Still flush: a launch argument queued after registration must not be
-    // stranded by an early return.
-    for (const link of queuedLinks.splice(0)) void handleDeepLink(link);
+    // Hand over anything queued since the last call. A launch argument or an
+    // early second-instance link must never be stranded by an early return.
+    drainQueuedLinks();
     return;
   }
   registered = true;
@@ -227,12 +241,15 @@ export function registerAccountGate(
   }
 
   // Any link that arrived before this point is handled now, in order.
-  for (const link of queuedLinks.splice(0)) void handleDeepLink(link);
+  drainQueuedLinks();
 }
 
 /**
  * A deep link from the launch argv (Windows/Linux) or from a very early
- * second-instance event. Queued until the gate is ready to use the store.
+ * second-instance event.
+ *
+ * A link that arrives before the gate is registered is queued, exactly like the
+ * launch argument, so both paths through a cold start behave the same way.
  */
 export function deliverDeepLink(link: string | null): void {
   if (!link) return;

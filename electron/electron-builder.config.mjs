@@ -23,6 +23,13 @@ const artifactLabel =
     'mac-app-store': 'MacAppStore',
   }[DISTRIBUTION_TARGET] ?? 'Electron';
 const artifactPrefix = `${PRODUCT_NAME.replace(/[^A-Za-z0-9]+/g, '-')}-${artifactLabel}`;
+
+// The ThinkFlyFlow sign-in hands control back through this scheme (see
+// electron/src/main/voicerai-gate.ts). macOS and Linux only learn about it from
+// the packaged metadata, so it is declared here as well as in the Windows
+// installer script; without it the browser's `voicerai://` link has no handler
+// on those platforms and the sign-in silently goes nowhere.
+const DEEP_LINK_SCHEME = 'voicerai';
 // Stable and Beta are the Electron update feeds (Beta = `-beta.N` prereleases,
 // stamped by electron-release.yml). Packaging rehearsals from main are stamped
 // stable; they are review artifacts and are never published.
@@ -137,6 +144,7 @@ export default {
       ? { author: { name: storeIdentity.publisherLegalName, email: 'hi@voicestudio.sh' } }
       : {}),
   },
+  protocols: [{ name: 'VoicerAI sign-in link', schemes: [DEEP_LINK_SCHEME], role: 'Viewer' }],
   directories: { output: 'release', buildResources: 'build' },
   artifactName: `${artifactPrefix}-\${version}-\${os}-\${arch}.\${ext}`,
   // The default FUSE2 runtime cannot start on distros without libfuse.so.2.
