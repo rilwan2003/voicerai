@@ -111,13 +111,41 @@ jobs:
       - name: Package installers
         working-directory: electron
         env:
-          # Signing certificates are picked up here once they exist as secrets.
+          # Signing material is read from repository secrets the moment they are
+          # added; with none set the build stays unsigned, exactly as before.
+          #   Windows: WINDOWS_CSC_LINK (base64 .pfx), WINDOWS_CSC_KEY_PASSWORD,
+          #            optional WINDOWS_TSA_URL for a timestamp server.
+          #   macOS:   MACOS_CSC_LINK (base64 .p12), MACOS_CSC_KEY_PASSWORD, plus
+          #            APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID to
+          #            notarise. Without those the app is ad-hoc signed instead.
           CSC_LINK: ${{ matrix.platform == 'darwin' && secrets.MACOS_CSC_LINK || matrix.platform == 'win32' && secrets.WINDOWS_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'darwin' && secrets.MACOS_CSC_KEY_PASSWORD || matrix.platform == 'win32' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'darwin' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'darwin' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'darwin' && secrets.APPLE_TEAM_ID || '' }}
+          WINDOWS_TSA_URL: ${{ matrix.platform == 'win32' && secrets.WINDOWS_TSA_URL || '' }}
         run: |
           if [ -z "${CSC_LINK:-}" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
           bun x electron-builder --config electron-builder.config.mjs ${{ matrix.flags }} --publish never
           ls -la release
+
+      - name: Report the signature state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            # Read the Authenticode certificate out of the installer itself.
+            cert=$(bun x --bun osslsigncode verify -in electron/release/*.exe 2>/dev/null                     | grep -i "subject:" | head -1 || true)
+            if [ -n "$cert" ]; then echo "SIGNED: $cert" | tee -a "$GITHUB_STEP_SUMMARY"
+            else echo "UNSIGNED: no Authenticode signature (SmartScreen will warn)" | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          else
+            app="$(ls -d electron/release/*/VoicerAI.app 2>/dev/null | head -1 || true)"
+            plist="${app:+$app/Contents/Info.plist}"
+            if [ -n "$plist" ]; then
+              # The scheme has to be in the packaged app, not just in the installer.
+              /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$plist" 2>/dev/null                 | grep -qx voicerai && echo "URL scheme: voicerai present"                 || echo "::error::voicerai URL scheme missing from Info.plist"
+            fi
+          fi
 
       - name: Collect the installers
         shell: bash

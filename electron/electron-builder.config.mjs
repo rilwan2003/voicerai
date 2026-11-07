@@ -190,7 +190,12 @@ export default {
   ...(DISTRIBUTION_TARGET === 'snap-store'
     ? { afterAllArtifactBuild: ({ artifactPaths }) => repairSnapArtifacts(artifactPaths) }
     : {}),
+  // Timestamp every signed Windows build, so the signature stays valid after the
+  // certificate itself expires (overridable per release via the workflow).
   win: {
+    ...(process.env.WINDOWS_TSA_URL
+      ? { signtoolOptions: { rfc3161TimeStampServer: process.env.WINDOWS_TSA_URL } }
+      : {}),
     icon: 'build/icons/icon.ico',
     // The CLI matrix selects one architecture per runner and updater feed
     // (--x64 / --arm64); an unflagged local build uses the host's. Never pin
