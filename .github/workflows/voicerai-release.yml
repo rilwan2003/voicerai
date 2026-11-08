@@ -157,6 +157,15 @@ jobs:
                    electron/release/VoicerAI-Electron-*.zip; do
             cp "$f" dist-out/
           done
+          # electron-builder writes the update manifests (latest.yml on Windows,
+          # latest-mac.yml on macOS) next to the installers. The in-app updater
+          # reads them from latest/download, so a release without them advertises
+          # an update feed that 404s. Copy whatever was produced; a platform that
+          # publishes none simply has no update feed.
+          for f in electron/release/*.yml electron/release/*.yaml; do
+            [ -f "$f" ] || continue
+            cp "$f" dist-out/
+          done
           ls -la dist-out
 
       # Upload straight to the tag's release instead of an intermediate

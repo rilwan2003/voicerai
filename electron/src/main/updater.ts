@@ -18,8 +18,8 @@ const { autoUpdater } = updaterPackage;
 // `latest/download` never serves a prerelease, so Beta resolves its release
 // through the releases API (see resolveBetaFeed).
 export type UpdateChannel = 'stable' | 'beta';
-const STABLE_FEED = 'https://github.com/debpalash/VoiceStudio/releases/latest/download';
-const RELEASES_API = 'https://api.github.com/repos/debpalash/VoiceStudio/releases?per_page=30';
+const STABLE_FEED = 'https://github.com/rilwan2003/voicerai/releases/latest/download';
+const RELEASES_API = 'https://api.github.com/repos/rilwan2003/voicerai/releases?per_page=30';
 
 function feedChannelName(
   platform: NodeJS.Platform = process.platform,
@@ -43,7 +43,7 @@ export function feedManifestName(
   return `${feedChannelName(platform, arch, distribution, channel)}${suffix}.yml`;
 }
 
-const RELEASE_DOWNLOAD = 'https://github.com/debpalash/VoiceStudio/releases/download';
+const RELEASE_DOWNLOAD = 'https://github.com/rilwan2003/voicerai/releases/download';
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/;
 
 /** Orders `vX.Y.Z-beta.N` below `vX.Y.Z`, as semver does. */
@@ -69,7 +69,7 @@ export async function resolveBetaFeed(
   fetcher: typeof fetch = fetch,
 ): Promise<{ url: string; channel: string }> {
   const response = await fetcher(RELEASES_API, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'VoiceStudio' },
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'VoicerAI' },
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`Beta update feed lookup failed (${response.status})`);
@@ -134,7 +134,7 @@ export async function resolveUpdateFeedUrl(
   const response = await fetcher(RELEASES_API, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'VoiceStudio',
+      'User-Agent': 'VoicerAI',
     },
     signal: AbortSignal.timeout(10_000),
   });
@@ -174,9 +174,7 @@ export async function resolveUpdateFeedUrl(
   });
   const release = matchingReleases[0]?.release;
   if (!release) throw new Error(`No Microsoft Store update feed publishes ${manifest}`);
-  return `https://github.com/debpalash/VoiceStudio/releases/download/${encodeURIComponent(
-    release.tag_name as string,
-  )}`;
+  return `${RELEASE_DOWNLOAD}/${encodeURIComponent(release.tag_name as string)}`;
 }
 
 export const UPDATE_CHANNELS = {
@@ -196,7 +194,7 @@ export async function listDesktopReleases(
   const response = await fetcher(RELEASES_API, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'VoiceStudio',
+      'User-Agent': 'VoicerAI',
     },
     signal: AbortSignal.timeout(10_000),
   });

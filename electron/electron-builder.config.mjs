@@ -42,7 +42,7 @@ if (
 ) {
   throw new Error(`Unsupported Electron update channel: ${updateChannel}`);
 }
-const updateUrl = 'https://github.com/debpalash/VoiceStudio/releases/latest/download';
+const updateUrl = 'https://github.com/rilwan2003/voicerai/releases/latest/download';
 
 export function distributionPackaging(target = DISTRIBUTION_TARGET) {
   if (target === 'snap-store') {
