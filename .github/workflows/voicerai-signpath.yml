@@ -1,0 +1,137 @@
+name: VoicerAI Windows signing (SignPath)
+
+# Signs the Windows installer with the free SignPath Foundation certificate.
+#
+# Why this exists separately from voicerai-release.yml: SignPath's GitHub
+# connector requires the artifact to be produced by a GitHub-hosted workflow
+# and submitted through their action, with the signing key living on their HSM.
+# That is the trade for a free certificate: SignPath Foundation is the
+# publisher on the signature, not ThinkFlyFlow.
+#
+# This workflow is inert until the repository secrets below exist. Until then
+# the release pipeline keeps producing unsigned installers with the existing
+# SmartScreen warning, and nothing here runs.
+#   SIGNPATH_API_TOKEN      API token from the SignPath UI
+#   SIGNPATH_ORG_ID         SignPath organization id
+#   SIGNPATH_PROJECT_SLUG   e.g. voicerai
+#   SIGNPATH_POLICY_SLUG    e.g. release-signing
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose Windows installer should be signed (e.g. v1.0.6)'
+        required: true
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  sign-windows:
+    name: sign Windows installer
+    # Skip quietly when the project has not been onboarded to SignPath yet,
+    # so adding this file cannot break a release on its own.
+    if: vars.SIGNPATH_ENABLED == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/desktop-bridge -> target
+          key: voicerai-signpath-${{ github.ref }}
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the desktop app
+        env:
+          VOICERAI_TARGET: x86_64-pc-windows-msvc
+          VOICERAI_UPDATE_CHANNEL: electron-stable-win32-x64
+        run: bun run --cwd electron build
+
+      # SignPath signs what it is given; it never builds. The unsigned installer
+      # has to be built here first, on a GitHub-hosted agent, because every job
+      # leading up to the signing request must run there for OSS projects.
+      - name: Package the unsigned installer
+        working-directory: electron
+        env:
+          VOICERAI_TARGET: x86_64-pc-windows-msvc
+          VOICERAI_UPDATE_CHANNEL: electron-stable-win32-x64
+        run: |
+          bun x electron-builder --config electron-builder.config.mjs --win --x64 --publish never
+          ls -la release
+
+      - name: Upload the unsigned artifact
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicerai-unsigned-windows
+          path: electron/release/*.exe
+          # A bare file, so the artifact configuration's root is the PE file
+          # itself rather than a ZIP wrapper.
+          archive: false
+          if-no-files-found: error
+
+      - name: Submit the signing request
+        id: sign
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Verify the signature
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem signed/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "no signed installer was returned" }
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          Write-Host "Status: $($sig.Status)"
+          Write-Host "Subject: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "signature is not valid: $($sig.Status)" }
+          "SIGNED: $($sig.SignerCertificate.Subject)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          $exe.FullName | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Replace the installer on the release
+        if: github.event_name == 'release' || inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in signed/*.exe; do
+            gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY" --clobber
+          done
+          # The site downloads one stable file name, so keep that in step with
+          # the signed installer.
+          for f in signed/*.exe; do
+            cp "$f" signed/VoicerAI-Windows-x64-Setup.exe
+          done
+          for f in signed/VoicerAI-Windows-x64-Setup.exe; do
+            [ -f "$f" ] && gh release upload downloads "$f" --repo "$GITHUB_REPOSITORY" --clobber || true
+          done

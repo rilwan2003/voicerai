@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the VoicerAI Windows installer.
+
+  electron-builder produces a single NSIS installer, which SignPath signs with
+  signtool (Authenticode) plus an RFC3161 timestamp. The timestamp comes from
+  the SignPath signing policy, not from WINDOWS_TSA_URL, so a signed build here
+  stays valid after the certificate itself expires.
+
+  Uploaded to GitHub as a single file with `archive: false`, so the root element
+  is the PE file itself rather than a zip-file.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration">
+  <pe-file-set>
+    <include path="VoicerAI-Electron-*.exe" />
+    <for-each>
+      <authenticode-sign hash-algorithm="sha256">
+        <description>VoicerAI by ThinkFlyFlow</description>
+        <product-name>VoicerAI</product-name>
+      </authenticode-sign>
+    </for-each>
+  </pe-file-set>
+</artifact-configuration>
