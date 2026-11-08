@@ -30,11 +30,36 @@ export function decideMissingRuntime(facts: MissingRuntimeFacts): MissingRuntime
   return facts.repairAttempted ? 'repair_failed' : 'repair';
 }
 
-/** True when the folder shows an earlier install (never true for a fresh machine). */
-export async function runtimeWasInstalled(project: string): Promise<boolean> {
-  for (const name of ['.runtime-ready', '.runtime-installing', '.venv', 'pyproject.toml']) {
+/** Markers inside the runtime project folder that only exist after a setup ran. */
+const RUNTIME_PROJECT_MARKERS = ['.runtime-ready', '.runtime-installing', '.venv', 'pyproject.toml'];
+
+/**
+ * True when this machine shows an earlier install (never true for a fresh machine).
+ *
+ * The project markers alone are not enough. A user who moves the runtime folder,
+ * reinstalls over an install whose runtime failed to unpack, or keeps data on a
+ * second drive leaves those markers behind, and reporting "never installed" sends
+ * them back through first-run setup as though nothing was ever there. `records`
+ * are durable paths that outlive the folder; any one of them is proof this machine
+ * has been set up before.
+ */
+export async function runtimeWasInstalled(
+  project: string,
+  records: string[] = [],
+): Promise<boolean> {
+  for (const candidate of [project, ...records]) {
+    for (const name of RUNTIME_PROJECT_MARKERS) {
+      try {
+        await stat(join(candidate, name));
+        return true;
+      } catch {
+        /* absent */
+      }
+    }
+  }
+  for (const record of records) {
     try {
-      await stat(join(project, name));
+      await stat(record);
       return true;
     } catch {
       /* absent */

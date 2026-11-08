@@ -495,6 +495,22 @@ function scopedRuntimeRoot(): string | null {
     : null;
 }
 
+/**
+ * Durable evidence that this machine has been through setup before, used when the
+ * runtime project itself is missing. These outlive the project folder: the
+ * location record survives a moved or deleted runtime, and a recorded custom root
+ * points at where the user actually installed, which may be unmounted right now.
+ */
+function installRecords(project: string): string[] {
+  const records = [join(app.getPath("userData"), RUNTIME_LOCATION_FILE)];
+  const stored = storedRuntimeLocation();
+  if (stored) {
+    records.push(stored.root);
+    if (!samePath(stored.root, project)) records.push(stored.root + "/project");
+  }
+  return records;
+}
+
 function selectedRuntimeRoot(parent: string): string {
   const selected = resolve(parent);
   // The runtime folder is named after the product so it is recognisable on disk.
@@ -1020,7 +1036,10 @@ export class BackendSupervisor extends EventEmitter<{
           if (gen === this.generation) {
             const action = decideMissingRuntime({
               packaged: true,
-              previouslyInstalled: await runtimeWasInstalled(project),
+              // Ask every durable place, not just the folder that is missing right
+              // now: a moved runtime or an aborted upgrade still means this
+              // machine was set up before and should be repaired, not re-welcomed.
+              previouslyInstalled: await runtimeWasInstalled(project, installRecords(project)),
               repairAttempted: this.repairAttempted,
               unsupported: isUnsupportedPlatform(),
             });
